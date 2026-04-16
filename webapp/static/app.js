@@ -1355,9 +1355,9 @@ async function loadJobs() {
   if (jobsStatus) {
     const active = runningCount + queuedCount;
     if (active > 0) {
-      jobsStatus.textContent = `Aktiv: ${runningCount} running, ${queuedCount} queued`;
+      jobsStatus.textContent = `Sortierung: ${sortKey} · Aktiv: ${runningCount} running, ${queuedCount} queued`;
     } else {
-      jobsStatus.textContent = "Keine aktiven Jobs.";
+      jobsStatus.textContent = `Sortierung: ${sortKey} · Keine aktiven Jobs.`;
     }
     if (failedTransitions > 0) {
       jobsStatus.textContent += ` · ${failedTransitions} neuer Fehler`;
