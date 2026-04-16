@@ -1242,129 +1242,148 @@ function startCachePolling() {
 }
 
 async function loadJobs() {
-  const r = await fetch("/api/jobs");
-  let rows = await r.json();
-  const rawCount = rows.length;
-  const sortKey = ($("#jobs-sort")?.value || "updated_desc").toLowerCase();
-  const minSavedSec = Number($("#jobs-min-saved-sec")?.value || "");
-  const minSavedPct = Number($("#jobs-min-saved-pct")?.value || "");
-
-  rows = rows.filter((row) => {
-    const savedSec = Number(row.cut_saved_seconds || 0);
-    const savedPct = Number(row.cut_saved_percent || 0);
-    if (!Number.isNaN(minSavedSec) && $("#jobs-min-saved-sec")?.value !== "" && savedSec < minSavedSec) {
-      return false;
-    }
-    if (!Number.isNaN(minSavedPct) && $("#jobs-min-saved-pct")?.value !== "" && savedPct < minSavedPct) {
-      return false;
-    }
-    return true;
-  });
-
   const jobsStatus = $("#jobs-status");
-  if (rows.length === 0 && rawCount > 0) {
-    const secActive = $("#jobs-min-saved-sec")?.value !== "";
-    const pctActive = $("#jobs-min-saved-pct")?.value !== "";
-    const activeFilters = [];
-    if (secActive) activeFilters.push(`Ersparnis(s) ≥ ${$("#jobs-min-saved-sec")?.value}`);
-    if (pctActive) activeFilters.push(`Schnitt(%) ≥ ${$("#jobs-min-saved-pct")?.value}`);
-    if (jobsStatus && activeFilters.length) {
-      jobsStatus.textContent = `0 Jobs nach Filtern (${activeFilters.join(" · ")}). Filter leeren, dann „Aktualisieren“.`;
+  try {
+    const r = await fetch("/api/jobs");
+    let rows = await r.json();
+    if (!Array.isArray(rows)) {
+      if (jobsStatus) jobsStatus.textContent = "Jobs laden fehlgeschlagen: Unerwartetes API-Format.";
+      return;
     }
-  }
+    const rawCount = rows.length;
+    const sortKey = ($("#jobs-sort")?.value || "updated_desc").toLowerCase();
+    const minSavedSec = Number($("#jobs-min-saved-sec")?.value || "");
+    const minSavedPct = Number($("#jobs-min-saved-pct")?.value || "");
 
-  const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? Number.NEGATIVE_INFINITY : Number(v));
-  rows.sort((a, b) => {
-    const createdMs = (row) => {
-      if (row.creation_time) {
-        const t = Date.parse(row.creation_time);
-        if (!Number.isNaN(t)) return t;
+    rows = rows.filter((row) => {
+      const savedSec = Number(row.cut_saved_seconds || 0);
+      const savedPct = Number(row.cut_saved_percent || 0);
+      if (!Number.isNaN(minSavedSec) && $("#jobs-min-saved-sec")?.value !== "" && savedSec < minSavedSec) {
+        return false;
       }
-      return Number(row.created_at || 0) * 1000;
-    };
-    if (sortKey === "created_desc") return createdMs(b) - createdMs(a);
-    if (sortKey === "created_asc") return createdMs(a) - createdMs(b);
-    if (sortKey === "duration_desc") return num(b.cut_input_seconds) - num(a.cut_input_seconds);
-    if (sortKey === "duration_asc") return num(a.cut_input_seconds) - num(b.cut_input_seconds);
-    if (sortKey === "saved_sec_desc") return num(b.cut_saved_seconds) - num(a.cut_saved_seconds);
-    if (sortKey === "saved_sec_asc") return num(a.cut_saved_seconds) - num(b.cut_saved_seconds);
-    if (sortKey === "saved_pct_desc") return num(b.cut_saved_percent) - num(a.cut_saved_percent);
-    if (sortKey === "saved_pct_asc") return num(a.cut_saved_percent) - num(b.cut_saved_percent);
-    const au = Number(a.updated_at || 0);
-    const bu = Number(b.updated_at || 0);
-    if (sortKey === "updated_asc") return au - bu;
-    return bu - au;
-  });
+      if (!Number.isNaN(minSavedPct) && $("#jobs-min-saved-pct")?.value !== "" && savedPct < minSavedPct) {
+        return false;
+      }
+      return true;
+    });
 
-  state.latestJobRow = rows.length ? rows[0] : null;
-  const tb = $("#jobs-body");
-  tb.innerHTML = "";
-  let runningCount = 0;
-  let queuedCount = 0;
-  let failedTransitions = 0;
-  let doneTransitions = 0;
-
-  for (const row of rows) {
-    const prev = state.jobStatusById.get(row.id);
-    if (prev && prev !== row.status) {
-      if (row.status === "failed") failedTransitions += 1;
-      if (row.status === "done") doneTransitions += 1;
+    if (rows.length === 0 && rawCount > 0) {
+      const secActive = $("#jobs-min-saved-sec")?.value !== "";
+      const pctActive = $("#jobs-min-saved-pct")?.value !== "";
+      const activeFilters = [];
+      if (secActive) activeFilters.push(`Ersparnis(s) ≥ ${$("#jobs-min-saved-sec")?.value}`);
+      if (pctActive) activeFilters.push(`Schnitt(%) ≥ ${$("#jobs-min-saved-pct")?.value}`);
+      if (jobsStatus && activeFilters.length) {
+        jobsStatus.textContent = `0 Jobs nach Filtern (${activeFilters.join(" · ")}). Filter leeren, dann „Aktualisieren“.`;
+      }
     }
-    state.jobStatusById.set(row.id, row.status);
-    if (row.status === "running") runningCount += 1;
-    if (row.status === "queued") queuedCount += 1;
 
-    const tr = document.createElement("tr");
-    const phaseLabel = row.phase_message || row.phase || "";
-    const jobType = row.job_type || "clip_pipeline";
-    const optionsSummary = parseJobOptionsSummary(row.job_options);
-    const profExtra = renderProfileBadges(row.job_options);
-    const methodBlock = `<div class="job-badges">${renderTrimMethodBadge(
-      row.trim_method_label,
-      row.job_options,
-      row.job_type
-    )} ${renderReviewStateBadge(
-      row.review_state
-    )}</div>${
-      profExtra ? `<div class="job-badges" style="margin-top:0.25rem">${profExtra}</div>` : ""
-    }`;
-    const statusBadge = renderStatusBadge(row.status);
-    const hasOutputDir = Boolean(row.output_dir);
-    const playBtn = row.status === "done"
-      ? `<button type="button" class="btn job-play-btn" data-play-job-id="${row.id}">▶ Play</button>`
-      : "";
-    const folderCell = `<div class="job-folder-cell">${playBtn}</div>${
-      hasOutputDir ? `<div class="muted" style="font-size:0.72rem;margin-top:0.2rem">${escapeHtml(row.output_dir || "")}</div>` : ""
-    }`;
-    const relUpdated = formatRelativeFromEpoch(row.updated_at);
-    const durationCell = `<span title="${escapeHtml(relUpdated)}">${escapeHtml(formatSeconds(row.cut_input_seconds))}</span>`;
-    const savedCell = `<span title="${escapeHtml(relUpdated)}">${escapeHtml(formatSeconds(row.cut_saved_seconds))}</span>`;
-    const createdCell = escapeHtml(formatDateTime(row.creation_time, row.created_at));
-    tr.innerHTML = `<td>${folderCell}</td><td>${durationCell}</td><td>${savedCell}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${createdCell}</td><td>${row.id}</td><td title="${escapeHtml(
-      row.media_item_id || ""
-    )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(
-      row.error || ""
-    )}</td>`;
-    tb.appendChild(tr);
-  }
+    const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? Number.NEGATIVE_INFINITY : Number(v));
+    rows.sort((a, b) => {
+      const createdMs = (row) => {
+        if (row.creation_time) {
+          const t = Date.parse(row.creation_time);
+          if (!Number.isNaN(t)) return t;
+        }
+        return Number(row.created_at || 0) * 1000;
+      };
+      if (sortKey === "created_desc") return createdMs(b) - createdMs(a);
+      if (sortKey === "created_asc") return createdMs(a) - createdMs(b);
+      if (sortKey === "duration_desc") return num(b.cut_input_seconds) - num(a.cut_input_seconds);
+      if (sortKey === "duration_asc") return num(a.cut_input_seconds) - num(b.cut_input_seconds);
+      if (sortKey === "saved_sec_desc") return num(b.cut_saved_seconds) - num(a.cut_saved_seconds);
+      if (sortKey === "saved_sec_asc") return num(a.cut_saved_seconds) - num(b.cut_saved_seconds);
+      if (sortKey === "saved_pct_desc") return num(b.cut_saved_percent) - num(a.cut_saved_percent);
+      if (sortKey === "saved_pct_asc") return num(a.cut_saved_percent) - num(b.cut_saved_percent);
+      const au = Number(a.updated_at || 0);
+      const bu = Number(b.updated_at || 0);
+      if (sortKey === "updated_asc") return au - bu;
+      return bu - au;
+    });
 
-  tb.querySelectorAll("button[data-play-job-id]").forEach((btn) => {
-    btn.addEventListener("click", () => openJobVideo(btn.dataset.playJobId));
-  });
-
-  if (jobsStatus) {
-    const active = runningCount + queuedCount;
-    if (active > 0) {
-      jobsStatus.textContent = `Sortierung: ${sortKey} · Aktiv: ${runningCount} running, ${queuedCount} queued`;
-    } else {
-      jobsStatus.textContent = `Sortierung: ${sortKey} · Keine aktiven Jobs.`;
+    state.latestJobRow = rows.length ? rows[0] : null;
+    const tb = $("#jobs-body");
+    if (!tb) {
+      if (jobsStatus) jobsStatus.textContent = "Jobs-Tabelle nicht gefunden (UI-Fehler).";
+      return;
     }
-    if (failedTransitions > 0) {
-      jobsStatus.textContent += ` · ${failedTransitions} neuer Fehler`;
-    } else if (doneTransitions > 0) {
-      jobsStatus.textContent += ` · ${doneTransitions} fertig`;
-      refreshTinderwatchBadgeFromServer();
+    tb.innerHTML = "";
+    let runningCount = 0;
+    let queuedCount = 0;
+    let failedTransitions = 0;
+    let doneTransitions = 0;
+    let renderErrors = 0;
+
+    for (const row of rows) {
+      try {
+        const prev = state.jobStatusById.get(row.id);
+        if (prev && prev !== row.status) {
+          if (row.status === "failed") failedTransitions += 1;
+          if (row.status === "done") doneTransitions += 1;
+        }
+        state.jobStatusById.set(row.id, row.status);
+        if (row.status === "running") runningCount += 1;
+        if (row.status === "queued") queuedCount += 1;
+
+        const tr = document.createElement("tr");
+        const phaseLabel = row.phase_message || row.phase || "";
+        const jobType = row.job_type || "clip_pipeline";
+        const optionsSummary = parseJobOptionsSummary(row.job_options);
+        const profExtra = renderProfileBadges(row.job_options);
+        const methodBlock = `<div class="job-badges">${renderTrimMethodBadge(
+          row.trim_method_label,
+          row.job_options,
+          row.job_type
+        )} ${renderReviewStateBadge(
+          row.review_state
+        )}</div>${
+          profExtra ? `<div class="job-badges" style="margin-top:0.25rem">${profExtra}</div>` : ""
+        }`;
+        const statusBadge = renderStatusBadge(row.status);
+        const hasOutputDir = Boolean(row.output_dir);
+        const playBtn = row.status === "done"
+          ? `<button type="button" class="btn job-play-btn" data-play-job-id="${row.id}">▶ Play</button>`
+          : "";
+        const folderCell = `<div class="job-folder-cell">${playBtn}</div>${
+          hasOutputDir ? `<div class="muted" style="font-size:0.72rem;margin-top:0.2rem">${escapeHtml(row.output_dir || "")}</div>` : ""
+        }`;
+        const relUpdated = formatRelativeFromEpoch(row.updated_at);
+        const durationCell = `<span title="${escapeHtml(relUpdated)}">${escapeHtml(formatSeconds(row.cut_input_seconds))}</span>`;
+        const savedCell = `<span title="${escapeHtml(relUpdated)}">${escapeHtml(formatSeconds(row.cut_saved_seconds))}</span>`;
+        const createdCell = escapeHtml(formatDateTime(row.creation_time, row.created_at));
+        tr.innerHTML = `<td>${folderCell}</td><td>${durationCell}</td><td>${savedCell}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${createdCell}</td><td>${row.id}</td><td title="${escapeHtml(
+          row.media_item_id || ""
+        )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(
+          row.error || ""
+        )}</td>`;
+        tb.appendChild(tr);
+      } catch (_) {
+        renderErrors += 1;
+      }
     }
+
+    tb.querySelectorAll("button[data-play-job-id]").forEach((btn) => {
+      btn.addEventListener("click", () => openJobVideo(btn.dataset.playJobId));
+    });
+
+    if (jobsStatus) {
+      const active = runningCount + queuedCount;
+      const head = `Sortierung: ${sortKey} · Geladen: ${rawCount} · Angezeigt: ${rows.length}`;
+      if (active > 0) {
+        jobsStatus.textContent = `${head} · Aktiv: ${runningCount} running, ${queuedCount} queued`;
+      } else {
+        jobsStatus.textContent = `${head} · Keine aktiven Jobs.`;
+      }
+      if (renderErrors > 0) jobsStatus.textContent += ` · Render-Fehler: ${renderErrors}`;
+      if (failedTransitions > 0) {
+        jobsStatus.textContent += ` · ${failedTransitions} neuer Fehler`;
+      } else if (doneTransitions > 0) {
+        jobsStatus.textContent += ` · ${doneTransitions} fertig`;
+        refreshTinderwatchBadgeFromServer();
+      }
+    }
+  } catch (err) {
+    if (jobsStatus) jobsStatus.textContent = `Jobs laden/Render fehlgeschlagen: ${err.message || "Unbekannter Fehler"}`;
   }
 }
 
