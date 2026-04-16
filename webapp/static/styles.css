@@ -801,7 +801,7 @@ code {
   width: 100%;
   flex: 1 1 auto;
   min-height: 0;
-  object-fit: cover;
+  object-fit: contain;
   background: #000;
 }
 
