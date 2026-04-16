@@ -123,6 +123,23 @@ main {
   background: rgba(91, 76, 168, 0.16);
 }
 
+.noise-reduction-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+  color: var(--text);
+  background: rgba(26, 115, 232, 0.12);
+  font-size: 0.86rem;
+  user-select: none;
+}
+
+.noise-reduction-toggle input {
+  margin: 0;
+}
+
 .openai-tune-field {
   display: flex;
   align-items: center;

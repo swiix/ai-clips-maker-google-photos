@@ -132,6 +132,7 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
     opts = json.loads(str(row["job_options"] or "{}"))
     assert opts["openai_merge_gap_sec"] == pytest.approx(0.8)
     assert opts["openai_min_segment_sec"] == pytest.approx(0.2)
+    assert opts["noise_reduction"] is True
 
 
 def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):

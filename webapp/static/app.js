@@ -773,6 +773,7 @@ $("#run-selected").addEventListener("click", async () => {
   const trimMethod = ($("#trim-method")?.value || "silence_balanced").toLowerCase();
   const openaiMergeGapSec = Number($("#openai-merge-gap-sec")?.value || 0.35);
   const openaiMinSegmentSec = Number($("#openai-min-segment-sec")?.value || 0.04);
+  const noiseReductionEnabled = Boolean($("#noise-reduction-enabled")?.checked);
 
   const selectedItems = Array.from(state.selected.values());
   const sourceItems = selectedItems.length ? selectedItems : visibleItems();
@@ -801,6 +802,7 @@ $("#run-selected").addEventListener("click", async () => {
       trim_method: trimMethod,
       openai_merge_gap_sec: trimMethod === "openai_speech" ? openaiMergeGapSec : undefined,
       openai_min_segment_sec: trimMethod === "openai_speech" ? openaiMinSegmentSec : undefined,
+      noise_reduction: noiseReductionEnabled,
     }),
   });
   const j = await r.json();
@@ -810,7 +812,7 @@ $("#run-selected").addEventListener("click", async () => {
   loadJobs();
   const jobsStatus = $("#jobs-status");
   if (jobsStatus) {
-    jobsStatus.textContent = `Verarbeitung (${trimMethod}): ${j.queued_job_ids.length} eingereiht, ${Math.max(j.skipped_media_ids.length, localSkipped)} übersprungen${notReadyInfo}`;
+    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise Reduction: ${noiseReductionEnabled ? "an" : "aus"}): ${j.queued_job_ids.length} eingereiht, ${Math.max(j.skipped_media_ids.length, localSkipped)} übersprungen${notReadyInfo}`;
   }
 });
 

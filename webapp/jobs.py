@@ -8,6 +8,7 @@ import logging
 import json
 import os
 import queue
+import subprocess
 import threading
 import time
 import uuid
@@ -244,6 +245,36 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
         phase_message=run_phase_msg,
         progress=0.22,
     )
+    processing_input = cache_path
+    if _is_noise_reduction_enabled(row["job_options"]):
+        dbmod.upsert_job(
+            conn,
+            media_item_id,
+            job_type=job_type,
+            status="running",
+            phase="noise_reduce",
+            phase_message="Noise Reduction wird angewendet",
+            progress=0.28,
+        )
+        nr_path = settings.cache_dir / f"{media_item_id}_nr{ext}"
+        try:
+            _apply_noise_reduction_video(cache_path, nr_path)
+            if _is_valid_cached_av(nr_path):
+                processing_input = nr_path
+            else:
+                raise RuntimeError("Noise-reduced file is invalid.")
+        except Exception as exc:
+            dbmod.upsert_job(
+                conn,
+                media_item_id,
+                job_type=job_type,
+                status="failed",
+                phase="failed",
+                phase_message="Noise Reduction fehlgeschlagen",
+                progress=1.0,
+                error=str(exc),
+            )
+            return
 
     slug = safe_dir_slug(Path(row["filename"] or "video").stem)
     short_id = media_item_id[:12] if len(media_item_id) > 12 else media_item_id
@@ -300,7 +331,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 merge_gap_sec = 0.35
                 min_segment_sec = 0.04
             result = trim_video_to_openai_speech(
-                str(cache_path),
+                str(processing_input),
                 str(output_dir),
                 run_prefix,
                 api_key,
@@ -372,7 +403,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
             if not selected_profiles:
                 selected_profiles = ["balanced"]
             rendered = remove_silence_selected_profiles(
-                str(cache_path),
+                str(processing_input),
                 str(output_dir),
                 run_prefix,
                 selected_profiles,
@@ -423,7 +454,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 )
 
             result = run_clips_pipeline(
-                str(cache_path),
+                str(processing_input),
                 str(output_dir),
                 token,
                 source_metadata=meta,
@@ -518,3 +549,41 @@ def _is_valid_cached_av(path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def _is_noise_reduction_enabled(options_raw: str | None) -> bool:
+    try:
+        options = json.loads(options_raw or "{}")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return False
+    value = options.get("noise_reduction", False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _apply_noise_reduction_video(input_video: Path, output_video: Path) -> None:
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(input_video),
+        "-af",
+        "highpass=f=70,lowpass=f=8000,afftdn=nf=-25",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        str(output_video),
+    ]
+    proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip() or str(proc.returncode)
+        raise RuntimeError(f"ffmpeg noise reduction failed: {detail}")

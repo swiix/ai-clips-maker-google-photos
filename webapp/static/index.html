@@ -32,6 +32,10 @@
           <option value="silence_aggressive">Stille entfernen · Aggressive</option>
           <option value="openai_speech">OpenAI · nur gesprochene Segmente</option>
         </select>
+        <label class="noise-reduction-toggle" title="Reduziert konstantes Hintergrundrauschen vor der Verarbeitung (für alle Methoden).">
+          <input type="checkbox" id="noise-reduction-enabled" checked />
+          <span>Noise Reduction</span>
+        </label>
         <div id="openai-tuning" class="openai-tuning hidden" title="Feinabstimmung für OpenAI-Schnitt auf Basis der erkannten Sprach-Timestamps.">
           <label class="openai-tune-field" title="Maximale Lücke zwischen zwei Sprachsegmenten, die noch zusammengeführt wird. Höher = glatter, aber weniger harte Schnitte.">Merge-Gap (s)
             <input type="number" id="openai-merge-gap-sec" min="0.01" step="0.01" value="0.35" title="Empfehlung: 0.25 bis 0.80 Sekunden. Höher verbindet mehr Segmente." />

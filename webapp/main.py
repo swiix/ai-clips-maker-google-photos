@@ -236,6 +236,7 @@ class EnqueueBody(BaseModel):
     trim_method: Optional[str] = None
     openai_merge_gap_sec: Optional[float] = None
     openai_min_segment_sec: Optional[float] = None
+    noise_reduction: Optional[bool] = True
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -521,6 +522,11 @@ _STATS_METHOD_LABELS_DE: dict[str, str] = {
 def enqueue_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
     queued = []
     skipped = []
+    noise_reduction_enabled = bool(body.noise_reduction is not False)
+    options_json = json.dumps(
+        {"trim_method": "clip_pipeline_ai", "noise_reduction": noise_reduction_enabled},
+        ensure_ascii=True,
+    )
     for it in body.items:
         if not it.id or not it.baseUrl:
             skipped.append(it.id or "<missing-id>")
@@ -533,6 +539,7 @@ def enqueue_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
             product_url=it.productUrl,
             creation_time=it.creationTime,
             job_type="clip_pipeline",
+            job_options=options_json,
             trim_method_label="clip_pipeline_ai",
         )
         if enq:
@@ -554,6 +561,13 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
         "silence_balanced",
         "silence_aggressive",
     }
+    noise_reduction_enabled = bool(body.noise_reduction is not False)
+
+    def _dump(opts: dict[str, Any]) -> str:
+        payload = dict(opts)
+        payload["noise_reduction"] = noise_reduction_enabled
+        return json.dumps(payload, ensure_ascii=True)
+
     if raw == "openai_speech":
         opts: dict[str, Any] = {"trim_method": "openai_speech"}
         if body.openai_merge_gap_sec is not None:
@@ -570,23 +584,17 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
                     opts["openai_min_segment_sec"] = min_seg
             except (TypeError, ValueError):
                 pass
-        return "openai_speech_trim", json.dumps(opts, ensure_ascii=True)
+        return "openai_speech_trim", _dump(opts)
     if raw in valid_silence:
-        return "silence_remove", json.dumps({"trim_method": raw}, ensure_ascii=True)
+        return "silence_remove", _dump({"trim_method": raw})
     profs = [p for p in (body.profiles or []) if p in {"conservative", "balanced", "aggressive"}]
     if len(profs) >= 3:
-        return "silence_remove", json.dumps(
-            {"trim_method": "silence_all", "profiles": profs[:3]}, ensure_ascii=True
-        )
+        return "silence_remove", _dump({"trim_method": "silence_all", "profiles": profs[:3]})
     if len(profs) == 1:
-        return "silence_remove", json.dumps(
-            {"trim_method": f"silence_{profs[0]}", "profiles": profs}, ensure_ascii=True
-        )
+        return "silence_remove", _dump({"trim_method": f"silence_{profs[0]}", "profiles": profs})
     if profs:
-        return "silence_remove", json.dumps(
-            {"trim_method": "silence_balanced", "profiles": profs}, ensure_ascii=True
-        )
-    return "silence_remove", json.dumps({"trim_method": "silence_balanced"}, ensure_ascii=True)
+        return "silence_remove", _dump({"trim_method": "silence_balanced", "profiles": profs})
+    return "silence_remove", _dump({"trim_method": "silence_balanced"})
 
 
 def _trim_method_label_for_enqueue(body: EnqueueBody) -> str:
