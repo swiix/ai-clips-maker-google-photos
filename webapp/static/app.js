@@ -2026,10 +2026,6 @@ function renderTinderCard() {
           <span class="tinder-meta-label">Gewonnen</span>
           <span class="tinder-meta-value">${gainText}</span>
         </div>
-        <div class="tinder-meta-item tinder-meta-item-wide">
-          <span class="tinder-meta-label">Clip-Segment</span>
-          <span class="tinder-meta-value">${escapeHtml(formatSeconds(clip.begin_sec))}s - ${escapeHtml(formatSeconds(clip.finish_sec))}s</span>
-        </div>
       </div>
     </div>`;
   bindTinderVideoState(root);
