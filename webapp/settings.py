@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Optional
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +34,8 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_transcription_model: str = "whisper-1"
+    # Optional: path to JSON with openai_api_key (default: {data_dir}/openai_credentials.json). Env: OPENAI_CREDENTIALS_JSON
+    openai_credentials_json: Optional[Path] = None
 
     scheduler_interval_minutes: int = 0
     auto_enqueue_new_videos: bool = False
@@ -49,6 +54,35 @@ class Settings(BaseSettings):
     @property
     def credentials_path(self) -> Path:
         return self.data_dir / "google_credentials.json"
+
+    @property
+    def openai_credentials_path(self) -> Path:
+        if self.openai_credentials_json is not None:
+            return self.openai_credentials_json
+        return self.data_dir / "openai_credentials.json"
+
+    @model_validator(mode="after")
+    def load_openai_key_from_json(self) -> "Settings":
+        """
+        Prefer API key from local JSON over OPENAI_API_KEY / openai_api_key env when the file exists
+        and contains a non-empty key.
+        """
+        path = self.openai_credentials_path
+        if not path.is_file():
+            return self
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            key = str(
+                payload.get("openai_api_key")
+                or payload.get("api_key")
+                or payload.get("apiKey")
+                or ""
+            ).strip()
+            if key:
+                object.__setattr__(self, "openai_api_key", key)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+        return self
 
 
 def get_settings() -> Settings:

@@ -43,6 +43,13 @@ def test_profiles_are_all_defined():
     assert names == ["conservative", "balanced", "aggressive"]
 
 
+def test_settings_loads_openai_key_from_json(tmp_path: Path):
+    cred = tmp_path / "openai_credentials.json"
+    cred.write_text('{"openai_api_key": "from-json-key"}', encoding="utf-8")
+    s = Settings(data_dir=tmp_path, openai_credentials_json=cred)
+    assert s.openai_api_key == "from-json-key"
+
+
 def test_merge_transcript_segments_merges_small_gaps():
     segs = [{"start": 0.0, "end": 1.0}, {"start": 1.15, "end": 2.5}]
     got = merge_transcript_segments(segs, max_gap_sec=0.35)

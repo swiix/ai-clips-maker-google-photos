@@ -129,6 +129,10 @@ celerybeat.pid
 
 # Environments
 .env
+
+# OpenAI API key (local JSON; use openai_credentials.example.json as template)
+.ai-clips-web/openai_credentials.json
+openai_credentials.json
 .venv
 env/
 venv/
