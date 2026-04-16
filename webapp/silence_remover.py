@@ -44,12 +44,10 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 
 def format_duration_for_filename(seconds: float) -> str:
     """
-    Short token for filenames, e.g. 120s or 45d3s (45.3 seconds; dot replaced by d).
+    Duration token in whole seconds for filenames, e.g. 120s.
     """
     s = max(0.0, float(seconds))
-    if abs(s - round(s)) < 0.05:
-        return f"{int(round(s))}s"
-    return f"{s:.1f}".replace(".", "d") + "s"
+    return f"{int(round(s))}s"
 
 
 def output_duration_from_keep_segments(keep_segments: list[tuple[float, float]]) -> float:
@@ -58,7 +56,7 @@ def output_duration_from_keep_segments(keep_segments: list[tuple[float, float]])
 
 
 def duration_before_after_tag(before_sec: float, after_sec: float) -> str:
-    """Build a token like 120s_to_45d3s for output filenames."""
+    """Build a token like 120s_to_45s for output filenames."""
     return f"{format_duration_for_filename(before_sec)}_to_{format_duration_for_filename(after_sec)}"
 
 

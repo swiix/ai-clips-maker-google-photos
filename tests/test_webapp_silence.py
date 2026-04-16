@@ -48,9 +48,9 @@ def test_build_keep_segments_complements_silences():
 
 def test_duration_filename_tags():
     assert format_duration_for_filename(120.0) == "120s"
-    assert format_duration_for_filename(45.25) == "45d2s"
+    assert format_duration_for_filename(45.25) == "45s"
     assert output_duration_from_keep_segments([(0.0, 2.0), (5.0, 8.0)]) == 5.0
-    assert duration_before_after_tag(100.0, 45.25) == "100s_to_45d2s"
+    assert duration_before_after_tag(100.0, 45.25) == "100s_to_45s"
 
 
 def test_profiles_are_all_defined():
