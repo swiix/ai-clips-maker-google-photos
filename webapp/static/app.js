@@ -23,6 +23,7 @@ const STORAGE_KEYS = {
   cutMergeGapSec: "ai_clips_cut_merge_gap_sec",
   cutMinDurationSec: "ai_clips_cut_min_duration_sec",
   noiseReductionMode: "ai_clips_noise_reduction_mode",
+  trimMethod: "ai_clips_trim_method",
   tinderLikes: "ai_clips_tinder_likes",
   tinderDownloaded: "ai_clips_tinder_downloaded",
   tinderDecisions: "ai_clips_tinder_decisions",
@@ -89,6 +90,16 @@ async function refreshTinderwatchBadgeFromServer() {
 }
 
 function restoreCutTuningFromStorage() {
+  const trimMethodSelect = $("#trim-method");
+  if (trimMethodSelect) {
+    const savedTrimMethod = (window.localStorage.getItem(STORAGE_KEYS.trimMethod) || "").toLowerCase();
+    if (
+      savedTrimMethod &&
+      ["silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech", "all_methods_testing"].includes(savedTrimMethod)
+    ) {
+      trimMethodSelect.value = savedTrimMethod;
+    }
+  }
   const gapInput = $("#openai-merge-gap-sec");
   const minInput = $("#openai-min-segment-sec");
   if (gapInput) {
@@ -141,6 +152,14 @@ function persistNoiseModeToStorage(mode) {
   if (!["auto", "mild", "strong"].includes(normalized)) return;
   try {
     window.localStorage.setItem(STORAGE_KEYS.noiseReductionMode, normalized);
+  } catch (_) {}
+}
+
+function persistTrimMethodToStorage(method) {
+  const normalized = String(method || "").toLowerCase();
+  if (!["silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech", "all_methods_testing"].includes(normalized)) return;
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.trimMethod, normalized);
   } catch (_) {}
 }
 
@@ -1014,7 +1033,10 @@ $("#prev-page").addEventListener("click", () => {
 });
 
 $("#filter-input").addEventListener("input", () => renderGrid());
-$("#trim-method").addEventListener("change", () => updateOpenAiTuningVisibility());
+$("#trim-method").addEventListener("change", () => {
+  updateOpenAiTuningVisibility();
+  persistTrimMethodToStorage($("#trim-method")?.value);
+});
 const mergeGapInput = $("#openai-merge-gap-sec");
 const minDurationInput = $("#openai-min-segment-sec");
 const persistCurrentCutTuning = () => {
@@ -1050,6 +1072,7 @@ $("#run-selected").addEventListener("click", async () => {
   const noiseReductionMode = ($("#noise-reduction-mode")?.value || "auto").toLowerCase();
   persistCutTuningToStorage(cutMergeGapSec, cutMinDurationSec);
   persistNoiseModeToStorage(noiseReductionMode);
+  persistTrimMethodToStorage(trimMethod);
 
   const selectedItems = Array.from(state.selected.values());
   const sourceItems = selectedItems.length ? selectedItems : visibleItems();
