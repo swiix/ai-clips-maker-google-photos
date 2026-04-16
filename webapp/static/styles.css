@@ -905,8 +905,139 @@ code {
   color: var(--muted);
 }
 
+.tinder-stats {
+  margin-top: 1rem;
+  border: 1px solid rgba(255, 167, 198, 0.25);
+  border-radius: 16px;
+  padding: 0.75rem;
+  background: rgba(18, 13, 28, 0.75);
+}
+
+.tinder-stats h3 {
+  margin: 0 0 0.7rem;
+}
+
+.tinder-stats-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 0.8rem;
+}
+
+.tinder-stat-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 0.65rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tinder-ring {
+  width: 140px;
+  height: 140px;
+  border-radius: 999px;
+  margin: 0.1rem auto 0.65rem;
+  display: grid;
+  place-items: center;
+}
+
+.tinder-ring-inner {
+  width: 106px;
+  height: 106px;
+  border-radius: 999px;
+  background: #130f1d;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.tinder-ring-inner span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.tinder-stat-legend {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.86rem;
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  margin-right: 0.35rem;
+}
+
+.dot.like {
+  background: #27d7a0;
+}
+
+.dot.dislike {
+  background: #ff6a95;
+}
+
+.tinder-mode-title {
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.tinder-mode-bars {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.tinder-mode-row {
+  display: grid;
+  grid-template-columns: 170px 1fr 130px;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tinder-mode-label {
+  font-size: 0.82rem;
+  color: #e8dff3;
+}
+
+.tinder-mode-track {
+  height: 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.tinder-mode-like {
+  height: 100%;
+  background: linear-gradient(90deg, #1dc99c, #4be0ba);
+}
+
+.tinder-mode-value {
+  text-align: right;
+  font-size: 0.78rem;
+  color: #d5cde0;
+}
+
+.tinder-best-mode {
+  margin-top: 0.62rem;
+  font-size: 0.84rem;
+  color: #ffe3ef;
+}
+
 @media (max-width: 980px) {
   .tinder-layout {
     grid-template-columns: 1fr;
+  }
+  .tinder-stats-grid {
+    grid-template-columns: 1fr;
+  }
+  .tinder-mode-row {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+  .tinder-mode-value {
+    text-align: left;
   }
 }

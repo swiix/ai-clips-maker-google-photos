@@ -15,6 +15,7 @@ const state = {
   tinderLikes: new Map(),
   tinderDownloaded: new Map(),
   tinderLikeFilter: "all",
+  tinderDecisions: new Map(),
 };
 const videoRetryCountById = new Map();
 const STORAGE_KEYS = {
@@ -23,6 +24,7 @@ const STORAGE_KEYS = {
   noiseReductionMode: "ai_clips_noise_reduction_mode",
   tinderLikes: "ai_clips_tinder_likes",
   tinderDownloaded: "ai_clips_tinder_downloaded",
+  tinderDecisions: "ai_clips_tinder_decisions",
 };
 
 function $(sel) {
@@ -1248,11 +1250,22 @@ async function loadGallery() {
 function loadTinderStateFromStorage() {
   state.tinderLikes = new Map(Object.entries(readJsonStorage(STORAGE_KEYS.tinderLikes, {})));
   state.tinderDownloaded = new Map(Object.entries(readJsonStorage(STORAGE_KEYS.tinderDownloaded, {})));
+  state.tinderDecisions = new Map(Object.entries(readJsonStorage(STORAGE_KEYS.tinderDecisions, {})));
 }
 
 function persistTinderState() {
   saveJsonStorage(STORAGE_KEYS.tinderLikes, Object.fromEntries(state.tinderLikes.entries()));
   saveJsonStorage(STORAGE_KEYS.tinderDownloaded, Object.fromEntries(state.tinderDownloaded.entries()));
+  saveJsonStorage(STORAGE_KEYS.tinderDecisions, Object.fromEntries(state.tinderDecisions.entries()));
+}
+
+function detectTrimMode(folder, filename) {
+  const hay = `${String(folder || "").toLowerCase()} ${String(filename || "").toLowerCase()}`;
+  if (hay.includes("openai_speech") || hay.includes("openai")) return "openai_speech";
+  if (hay.includes("silence_conservative") || hay.includes("conservative")) return "silence_conservative";
+  if (hay.includes("silence_balanced") || hay.includes("balanced")) return "silence_balanced";
+  if (hay.includes("silence_aggressive") || hay.includes("aggressive")) return "silence_aggressive";
+  return "unknown";
 }
 
 function flattenGalleryClips(entries) {
@@ -1264,6 +1277,7 @@ function flattenGalleryClips(entries) {
         key: `${entry.folder || "folder"}::${clip.index || 0}::${clip.video_url}`,
         folder: entry.folder || "",
         sourceFilename: (entry.source && entry.source.filename) || "",
+        trimMode: detectTrimMode(entry.folder, (entry.source && entry.source.filename) || ""),
         index: clip.index,
         begin_sec: clip.begin_sec,
         finish_sec: clip.finish_sec,
@@ -1291,6 +1305,19 @@ function markTinderLiked(clip) {
     finish_sec: clip.finish_sec,
     video_url: clip.video_url,
     liked_at: new Date().toISOString(),
+  });
+  persistTinderState();
+}
+
+function markTinderDecision(clip, decision) {
+  if (!clip || (decision !== "like" && decision !== "dislike")) return;
+  state.tinderDecisions.set(clip.key, {
+    key: clip.key,
+    decision,
+    trimMode: clip.trimMode || "unknown",
+    sourceFilename: clip.sourceFilename || "",
+    folder: clip.folder || "",
+    decided_at: new Date().toISOString(),
   });
   persistTinderState();
 }
@@ -1356,6 +1383,77 @@ function renderTinderLikesList() {
   });
 }
 
+function renderTinderStats() {
+  const root = $("#tinder-stats-root");
+  if (!root) return;
+  const decisions = Array.from(state.tinderDecisions.values());
+  const likes = decisions.filter((d) => d.decision === "like").length;
+  const dislikes = decisions.filter((d) => d.decision === "dislike").length;
+  const total = likes + dislikes;
+  const likePct = total > 0 ? Math.round((likes * 100) / total) : 0;
+  const ring = `conic-gradient(#27d7a0 0 ${likePct}%, #ff6a95 ${likePct}% 100%)`;
+
+  const modes = ["silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech", "unknown"];
+  const labels = {
+    silence_conservative: "Silence Conservative",
+    silence_balanced: "Silence Balanced",
+    silence_aggressive: "Silence Aggressive",
+    openai_speech: "OpenAI Speech",
+    unknown: "Unknown",
+  };
+  const rows = modes
+    .map((mode) => {
+      const subset = decisions.filter((d) => (d.trimMode || "unknown") === mode);
+      const mLikes = subset.filter((d) => d.decision === "like").length;
+      const mDislikes = subset.filter((d) => d.decision === "dislike").length;
+      const mTotal = mLikes + mDislikes;
+      const mLikePct = mTotal > 0 ? Math.round((mLikes * 100) / mTotal) : 0;
+      return { mode, mLikes, mDislikes, mTotal, mLikePct };
+    })
+    .filter((x) => x.mTotal > 0);
+
+  const best = rows.length ? rows.slice().sort((a, b) => b.mLikePct - a.mLikePct || b.mTotal - a.mTotal)[0] : null;
+  root.innerHTML = `
+    <div class="tinder-stats-grid">
+      <div class="tinder-stat-card">
+        <div class="tinder-ring" style="background:${ring}">
+          <div class="tinder-ring-inner">${likePct}%<span>Like Rate</span></div>
+        </div>
+        <div class="tinder-stat-legend">
+          <div><span class="dot like"></span>Likes: <strong>${likes}</strong></div>
+          <div><span class="dot dislike"></span>Dislikes: <strong>${dislikes}</strong></div>
+          <div class="muted">Bewertet gesamt: ${total}</div>
+        </div>
+      </div>
+      <div class="tinder-stat-card">
+        <div class="tinder-mode-title">Like-Rate nach Cutting-Modus</div>
+        <div class="tinder-mode-bars">
+          ${
+            rows.length
+              ? rows
+                  .map(
+                    (r) => `<div class="tinder-mode-row">
+                <div class="tinder-mode-label">${labels[r.mode] || r.mode}</div>
+                <div class="tinder-mode-track">
+                  <div class="tinder-mode-like" style="width:${r.mLikePct}%"></div>
+                </div>
+                <div class="tinder-mode-value">${r.mLikePct}% (${r.mLikes}/${r.mTotal})</div>
+              </div>`
+                  )
+                  .join("")
+              : `<div class="muted">Noch keine Bewertungen vorhanden.</div>`
+          }
+        </div>
+        ${
+          best
+            ? `<div class="tinder-best-mode">Bester Modus aktuell: <strong>${labels[best.mode] || best.mode}</strong> (${best.mLikePct}% Like-Rate)</div>`
+            : ""
+        }
+      </div>
+    </div>
+  `;
+}
+
 function updateTinderLikeFilterButton() {
   const btn = $("#tinder-like-filter-toggle");
   if (!btn) return;
@@ -1411,6 +1509,7 @@ function renderTinderCard() {
     </div>`;
   updateTinderStatus();
   renderTinderLikesList();
+  renderTinderStats();
 }
 
 function tinderNext() {
@@ -1420,6 +1519,8 @@ function tinderNext() {
 }
 
 function tinderDislike() {
+  const clip = getCurrentTinderClip();
+  if (clip) markTinderDecision(clip, "dislike");
   tinderNext();
 }
 
@@ -1427,6 +1528,7 @@ function tinderLike() {
   const clip = getCurrentTinderClip();
   if (!clip) return;
   markTinderLiked(clip);
+  markTinderDecision(clip, "like");
   tinderNext();
 }
 
@@ -1446,6 +1548,7 @@ function downloadAllLikedClips() {
   for (const clip of batch) triggerClipDownload(clip);
   renderTinderLikesList();
   updateTinderStatus();
+  renderTinderStats();
 }
 
 function exportTinderLikes() {
@@ -1536,3 +1639,4 @@ restoreCutTuningFromStorage();
 updateOpenAiTuningVisibility();
 loadTinderStateFromStorage();
 updateTinderLikeFilterButton();
+renderTinderStats();
