@@ -1914,20 +1914,29 @@ function renderTinderCard() {
     renderTinderLikesList();
     return;
   }
+  const durations = getClipDurations(clip);
+  const beforeAfterText = durations
+    ? `${escapeHtml(formatSeconds(durations.before))}s / ${escapeHtml(formatSeconds(durations.after))}s`
+    : "n/a";
   root.innerHTML = `<div class="tinder-chip">Clip #${escapeHtml(String(clip.index || 0))}</div>
     <video class="tinder-video" src="${escapeHtml(clip.video_url)}" controls playsinline autoplay loop></video>
     <div class="tinder-meta">
       <div class="tinder-title">${escapeHtml(clip.sourceFilename || clip.folder || "Clip")}</div>
       <div id="tinder-player-state" class="tinder-player-state">Player: laedt...</div>
-      <div class="muted">Cutting-Modus: ${escapeHtml(trimModeLabelDe(clip.trimMode))}</div>
-      ${
-        (() => {
-          const d = getClipDurations(clip);
-          if (!d) return '<div class="muted">Dauer vorher/nachher: n/a</div>';
-          return `<div class="muted">Dauer vorher/nachher: ${escapeHtml(formatSeconds(d.before))}s / ${escapeHtml(formatSeconds(d.after))}s</div>`;
-        })()
-      }
-      <div class="muted">${escapeHtml(formatSeconds(clip.begin_sec))}s - ${escapeHtml(formatSeconds(clip.finish_sec))}s</div>
+      <div class="tinder-meta-grid">
+        <div class="tinder-meta-item">
+          <span class="tinder-meta-label">Cutting-Modus</span>
+          <span class="tinder-meta-value">${escapeHtml(trimModeLabelDe(clip.trimMode))}</span>
+        </div>
+        <div class="tinder-meta-item">
+          <span class="tinder-meta-label">Dauer vorher/nachher</span>
+          <span class="tinder-meta-value">${beforeAfterText}</span>
+        </div>
+        <div class="tinder-meta-item tinder-meta-item-wide">
+          <span class="tinder-meta-label">Clip-Segment</span>
+          <span class="tinder-meta-value">${escapeHtml(formatSeconds(clip.begin_sec))}s - ${escapeHtml(formatSeconds(clip.finish_sec))}s</span>
+        </div>
+      </div>
     </div>`;
   bindTinderVideoState(root);
   updateTinderStatus();
