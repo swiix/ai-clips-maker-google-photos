@@ -1653,6 +1653,7 @@ function detectTrimMode(folder, filename) {
 function trimModeLabelDe(mode) {
   const key = String(mode || "").toLowerCase();
   if (key === "openai_speech") return "OpenAI Speech";
+  if (key === "clip_pipeline_ai") return "Clip Pipeline AI";
   if (key === "silence_conservative") return "Silence Conservative";
   if (key === "silence_balanced") return "Silence Balanced";
   if (key === "silence_aggressive") return "Silence Aggressive";

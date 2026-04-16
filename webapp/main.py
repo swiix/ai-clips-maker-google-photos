@@ -1075,17 +1075,28 @@ def _build_gallery_entries(
     include_orphans: bool,
     max_clips: int | None = None,
 ) -> list[dict[str, Any]]:
-    def _trim_mode_from_job(trim_method_label: Any, job_options: Any) -> str:
+    def _trim_mode_from_job(trim_method_label: Any, job_options: Any, job_type: Any) -> str:
         label = str(trim_method_label or "").strip().lower()
-        if label:
-            return label
         try:
             opts = json.loads(str(job_options or "{}"))
         except Exception:
             opts = {}
+        if label:
+            # Normalize legacy/internal labels to the same canonical keys the UI expects.
+            if label == "openai_speech_trim":
+                return "openai_speech"
+            if label == "silence_remove":
+                label = ""
+            elif label in {"silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech"}:
+                return label
         tm = str(opts.get("trim_method") or "").strip().lower()
         if not tm:
-            return "unknown"
+            jt = str(job_type or "").strip().lower()
+            if jt == "openai_speech_trim":
+                return "openai_speech"
+            if jt == "silence_remove":
+                return "silence_balanced"
+            return label or "unknown"
         if tm in {"silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech"}:
             return tm
         if tm == "silence_all":
@@ -1109,7 +1120,7 @@ def _build_gallery_entries(
     # Build gallery primarily from jobs table as source of truth.
     done_rows = conn.execute(
         """
-        SELECT id, media_item_id, filename, creation_time, output_dir, trim_method_label, job_options
+        SELECT id, media_item_id, filename, creation_time, output_dir, trim_method_label, job_options, job_type
         FROM jobs
         WHERE status = 'done' AND output_dir IS NOT NULL
         ORDER BY updated_at DESC
@@ -1164,7 +1175,7 @@ def _build_gallery_entries(
                     "creationTime": r["creation_time"],
                     "mediaItemId": r["media_item_id"],
                     "jobId": int(r["id"]),
-                    "trimMode": _trim_mode_from_job(r["trim_method_label"], r["job_options"]),
+                    "trimMode": _trim_mode_from_job(r["trim_method_label"], r["job_options"], r["job_type"]),
                 },
                 "clips": clips_out,
                 "error": None,
