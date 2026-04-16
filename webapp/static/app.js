@@ -857,15 +857,10 @@ async function loadJobs() {
     }`;
     const statusBadge = renderStatusBadge(row.status);
     const hasOutputDir = Boolean(row.output_dir);
-    const folderBtn = hasOutputDir
-      ? `<button type="button" class="btn job-folder-btn" data-folder-job-id="${row.id}" title="${escapeHtml(
-          row.output_dir || ""
-        )}">Ordner</button>`
-      : "";
     const playBtn = row.status === "done"
       ? `<button type="button" class="btn job-play-btn" data-play-job-id="${row.id}">▶ Play</button>`
       : "";
-    const folderCell = `<div class="job-folder-cell">${folderBtn}${playBtn}</div>${
+    const folderCell = `<div class="job-folder-cell">${playBtn}</div>${
       hasOutputDir ? `<div class="muted" style="font-size:0.72rem;margin-top:0.2rem">${escapeHtml(row.output_dir || "")}</div>` : ""
     }`;
     tr.innerHTML = `<td>${folderCell}</td><td>${row.id}</td><td title="${escapeHtml(
@@ -878,9 +873,6 @@ async function loadJobs() {
 
   tb.querySelectorAll("button[data-play-job-id]").forEach((btn) => {
     btn.addEventListener("click", () => openJobVideo(btn.dataset.playJobId));
-  });
-  tb.querySelectorAll("button[data-folder-job-id]").forEach((btn) => {
-    btn.addEventListener("click", () => openJobVideo(btn.dataset.folderJobId));
   });
 
   if (jobsStatus) {
