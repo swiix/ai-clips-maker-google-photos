@@ -1,0 +1,172 @@
+"""
+Trim video to speech-only segments using OpenAI audio transcription (Whisper API).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from webapp.silence_remover import probe_duration_seconds, render_keep_segments_video
+
+logger = logging.getLogger(__name__)
+
+OPENAI_TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions"
+
+
+def _extract_audio_mp3(video_path: str, mp3_path: str) -> None:
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        video_path,
+        "-vn",
+        "-acodec",
+        "libmp3lame",
+        "-q:a",
+        "4",
+        mp3_path,
+    ]
+    proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg audio extract failed: {(proc.stderr or proc.stdout or '').strip() or proc.returncode}"
+        )
+
+
+def merge_transcript_segments(
+    segments: list[dict[str, Any]],
+    *,
+    max_gap_sec: float = 0.35,
+    min_duration_sec: float = 0.04,
+) -> list[tuple[float, float]]:
+    intervals: list[tuple[float, float]] = []
+    for seg in segments:
+        try:
+            start = float(seg.get("start", 0.0))
+            end = float(seg.get("end", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if end - start >= min_duration_sec:
+            intervals.append((start, end))
+    intervals.sort(key=lambda x: x[0])
+    if not intervals:
+        return []
+    merged: list[tuple[float, float]] = [intervals[0]]
+    for s, e in intervals[1:]:
+        ls, le = merged[-1]
+        if s - le <= max_gap_sec:
+            merged[-1] = (ls, max(le, e))
+        else:
+            merged.append((s, e))
+    return merged
+
+
+def transcribe_verbose_json(
+    api_key: str,
+    audio_path: str,
+    *,
+    model: str = "whisper-1",
+    timeout_sec: float = 600.0,
+) -> dict[str, Any]:
+    path = Path(audio_path)
+    data_bytes = path.read_bytes()
+    if len(data_bytes) > 25 * 1024 * 1024:
+        raise RuntimeError(
+            "Audio file exceeds OpenAI transcription size limit (~25MB). "
+            "Try a shorter video or lower bitrate extract."
+        )
+    with httpx.Client(timeout=timeout_sec) as client:
+        resp = client.post(
+            OPENAI_TRANSCRIPTIONS_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            files={"file": (path.name, data_bytes, "audio/mpeg")},
+            data={
+                "model": model,
+                "response_format": "verbose_json",
+            },
+        )
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        detail = resp.text
+        try:
+            detail = str(resp.json())
+        except Exception:
+            pass
+        raise RuntimeError(f"OpenAI transcription failed: {detail}") from exc
+    return resp.json()
+
+
+def trim_video_to_openai_speech(
+    input_video: str,
+    output_dir: str,
+    output_prefix: str,
+    api_key: str,
+    *,
+    model: str = "whisper-1",
+) -> dict[str, str]:
+    """
+    Transcribe audio via OpenAI, keep only intervals where speech segments exist, concat video.
+    Writes MP4 and a JSON sidecar with raw verbose response.
+    """
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    total = probe_duration_seconds(input_video)
+    if total <= 0:
+        raise RuntimeError("Input video duration is invalid (<= 0).")
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        mp3_path = tmp.name
+    try:
+        _extract_audio_mp3(input_video, mp3_path)
+        verbose = transcribe_verbose_json(api_key, mp3_path, model=model)
+    finally:
+        try:
+            Path(mp3_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    raw_path = out_dir / f"{output_prefix}_openai_verbose.json"
+    raw_path.write_text(json.dumps(verbose, ensure_ascii=True, indent=2), encoding="utf-8")
+
+    segs = verbose.get("segments")
+    if not isinstance(segs, list):
+        segs = []
+    keep = merge_transcript_segments(segs)
+    if not keep:
+        raise RuntimeError("OpenAI returned no speech segments to keep.")
+
+    # Clamp to duration
+    clamped: list[tuple[float, float]] = []
+    for s, e in keep:
+        s = max(0.0, min(s, total))
+        e = max(0.0, min(e, total))
+        if e - s > 0.05:
+            clamped.append((s, e))
+    if not clamped:
+        raise RuntimeError("No valid keep intervals after clamping to video duration.")
+
+    out_video = out_dir / f"{output_prefix}_speech_openai.mp4"
+    render_keep_segments_video(input_video, str(out_video), clamped)
+    logger.info(
+        "OpenAI speech trim: %s segments -> %s (duration %.2fs)",
+        len(clamped),
+        out_video,
+        total,
+    )
+    return {
+        "video_path": str(out_video),
+        "transcript_json": str(raw_path),
+        "segments_kept": str(len(clamped)),
+    }
+

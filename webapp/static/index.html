@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ai-clips-maker · Google Photos</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>ai-clips-maker</h1>
+    <nav class="tabs">
+      <button type="button" data-tab="sources" class="tab active">Quellen</button>
+      <button type="button" data-tab="gallery" class="tab">Galerie</button>
+      <button type="button" data-tab="jobs" class="tab">Jobs</button>
+    </nav>
+    <div class="auth">
+      <span id="auth-label" class="muted">…</span>
+      <a id="connect-btn" class="btn primary" href="/auth/google">Google verbinden</a>
+      <button type="button" id="refresh-media" class="btn">Picker öffnen</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="panel-sources" class="panel active">
+      <div class="toolbar">
+        <input type="search" id="filter-input" placeholder="Filter (Dateiname, Datum)…" autocomplete="off" />
+        <select id="trim-method" class="btn" aria-label="Verarbeitungsmethode">
+          <option value="silence_conservative">Stille entfernen · Conservative</option>
+          <option value="silence_balanced" selected>Stille entfernen · Balanced</option>
+          <option value="silence_aggressive">Stille entfernen · Aggressive</option>
+          <option value="openai_speech">OpenAI · nur gesprochene Segmente</option>
+        </select>
+        <button type="button" id="select-all" class="btn">Alle sichtbaren</button>
+        <button type="button" id="clear-sel" class="btn">Auswahl leeren</button>
+        <button type="button" id="run-selected" class="btn primary">Verarbeitung starten</button>
+      </div>
+      <p id="media-status" class="muted">Noch keine Auswahl. Nutze "Picker öffnen".</p>
+      <div id="processing-status" class="status-banner status-banner-warn hidden" role="status" aria-live="polite"></div>
+      <div id="cache-summary" class="cache-summary hidden" role="status" aria-live="polite">
+        <div id="cache-summary-text" class="cache-summary-text"></div>
+        <div class="cache-progress-track">
+          <div id="cache-summary-bar" class="cache-progress-bar" style="width:0%"></div>
+        </div>
+      </div>
+      <div id="media-grid" class="grid"></div>
+      <div class="pager">
+        <button type="button" id="prev-page" class="btn" disabled>Zurück</button>
+        <button type="button" id="next-page" class="btn" disabled>Weiter</button>
+      </div>
+    </section>
+
+    <section id="panel-gallery" class="panel">
+      <p class="muted">Lokale Ausgabe unter <code>outputs/</code> — jedes Projekt mit <code>source.json</code> und Clips.</p>
+      <div id="gallery-root"></div>
+    </section>
+
+    <section id="panel-jobs" class="panel">
+      <button type="button" id="refresh-jobs" class="btn">Aktualisieren</button>
+      <button type="button" id="copy-latest-job" class="btn">Letzten Eintrag kopieren</button>
+      <p id="jobs-status" class="muted"></p>
+      <table class="jobs">
+        <thead>
+          <tr><th>ID</th><th>Media</th><th>Typ</th><th>Profile</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Ordner</th><th>Fehler</th></tr>
+        </thead>
+        <tbody id="jobs-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/static/app.js?v=picker28" defer></script>
+</body>
+</html>
