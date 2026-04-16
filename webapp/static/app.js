@@ -868,9 +868,9 @@ async function loadJobs() {
     const folderCell = `<div class="job-folder-cell">${folderBtn}${playBtn}</div>${
       hasOutputDir ? `<div class="muted" style="font-size:0.72rem;margin-top:0.2rem">${escapeHtml(row.output_dir || "")}</div>` : ""
     }`;
-    tr.innerHTML = `<td>${row.id}</td><td title="${escapeHtml(
+    tr.innerHTML = `<td>${folderCell}</td><td>${row.id}</td><td title="${escapeHtml(
       row.media_item_id || ""
-    )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${folderCell}</td><td>${escapeHtml(
+    )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(
       row.error || ""
     )}</td>`;
     tb.appendChild(tr);
