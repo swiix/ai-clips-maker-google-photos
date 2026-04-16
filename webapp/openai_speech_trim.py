@@ -120,6 +120,8 @@ def trim_video_to_openai_speech(
     *,
     model: str = "whisper-1",
     usd_per_minute: float = 0.006,
+    merge_gap_sec: float = 0.35,
+    min_segment_sec: float = 0.04,
 ) -> dict[str, str]:
     """
     Transcribe audio via OpenAI, keep only intervals where speech segments exist, concat video.
@@ -145,7 +147,11 @@ def trim_video_to_openai_speech(
     segs = verbose.get("segments")
     if not isinstance(segs, list):
         segs = []
-    keep = merge_transcript_segments(segs)
+    keep = merge_transcript_segments(
+        segs,
+        max_gap_sec=max(0.01, float(merge_gap_sec)),
+        min_duration_sec=max(0.01, float(min_segment_sec)),
+    )
     if not keep:
         raise RuntimeError("OpenAI returned no speech segments to keep.")
 

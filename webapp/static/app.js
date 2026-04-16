@@ -26,6 +26,13 @@ function setTab(name) {
   });
 }
 
+function updateOpenAiTuningVisibility() {
+  const box = $("#openai-tuning");
+  const method = ($("#trim-method")?.value || "").toLowerCase();
+  if (!box) return;
+  box.classList.toggle("hidden", method !== "openai_speech");
+}
+
 document.querySelectorAll(".tab").forEach((b) => {
   b.addEventListener("click", () => setTab(b.dataset.tab));
 });
@@ -747,6 +754,7 @@ $("#prev-page").addEventListener("click", () => {
 });
 
 $("#filter-input").addEventListener("input", () => renderGrid());
+$("#trim-method").addEventListener("change", () => updateOpenAiTuningVisibility());
 
 $("#select-all").addEventListener("click", () => {
   for (const it of visibleItems()) {
@@ -763,6 +771,8 @@ $("#clear-sel").addEventListener("click", () => {
 $("#run-selected").addEventListener("click", async () => {
   $("#media-status").textContent = "Starte Verarbeitung...";
   const trimMethod = ($("#trim-method")?.value || "silence_balanced").toLowerCase();
+  const openaiMergeGapSec = Number($("#openai-merge-gap-sec")?.value || 0.35);
+  const openaiMinSegmentSec = Number($("#openai-min-segment-sec")?.value || 0.04);
 
   const selectedItems = Array.from(state.selected.values());
   const sourceItems = selectedItems.length ? selectedItems : visibleItems();
@@ -786,7 +796,12 @@ $("#run-selected").addEventListener("click", async () => {
   const r = await fetch("/api/jobs/silence-remove", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items, trim_method: trimMethod }),
+    body: JSON.stringify({
+      items,
+      trim_method: trimMethod,
+      openai_merge_gap_sec: trimMethod === "openai_speech" ? openaiMergeGapSec : undefined,
+      openai_min_segment_sec: trimMethod === "openai_speech" ? openaiMinSegmentSec : undefined,
+    }),
   });
   const j = await r.json();
   const localSkipped = Math.max(0, sourceItems.length - items.length);
@@ -1014,3 +1029,4 @@ loadJobs();
 restoreLastPickerSession();
 startJobsPolling();
 startCachePolling();
+updateOpenAiTuningVisibility();

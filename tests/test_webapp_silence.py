@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -117,6 +118,8 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
         json={
             "items": [{"id": "m_openai", "baseUrl": "https://x", "filename": "a.mp4"}],
             "trim_method": "openai_speech",
+            "openai_merge_gap_sec": 0.8,
+            "openai_min_segment_sec": 0.2,
         },
     )
     assert resp.status_code == 200
@@ -126,6 +129,9 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
     c2.close()
     assert row["job_type"] == "openai_speech_trim"
     assert "openai_speech" in str(row["job_options"] or "")
+    opts = json.loads(str(row["job_options"] or "{}"))
+    assert opts["openai_merge_gap_sec"] == pytest.approx(0.8)
+    assert opts["openai_min_segment_sec"] == pytest.approx(0.2)
 
 
 def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
@@ -181,7 +187,7 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
         filename="c.mp4",
         base_url="https://x",
         job_type="openai_speech_trim",
-        job_options='{"trim_method":"openai_speech"}',
+        job_options='{"trim_method":"openai_speech","openai_merge_gap_sec":0.8,"openai_min_segment_sec":0.2}',
     )
     row = conn.execute("SELECT id FROM jobs WHERE media_item_id = 'm3'").fetchone()
     job_id = int(row["id"])
@@ -198,13 +204,19 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
     )
 
     monkeypatch.setattr("webapp.jobs._is_valid_cached_av", lambda *_a, **_k: True)
-    monkeypatch.setattr(
-        "webapp.openai_speech_trim.trim_video_to_openai_speech",
-        lambda *_a, **_k: {
+    captured: dict[str, object] = {}
+
+    def fake_trim(*_a, **kwargs):
+        captured.update(kwargs)
+        return {
             "video_path": str(tmp_path / "out" / "x.mp4"),
             "input_audio_seconds": "120.000000",
             "estimated_cost_usd": "0.012000",
-        },
+        }
+
+    monkeypatch.setattr(
+        "webapp.openai_speech_trim.trim_video_to_openai_speech",
+        fake_trim,
     )
 
     jobsmod._run_one_job(conn, settings, job_id)
@@ -219,6 +231,8 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
     assert int(out["outputs_created"] or 0) == 1
     assert abs(float(out["openai_input_seconds"] or 0) - 120.0) < 1e-6
     assert abs(float(out["openai_cost_usd"] or 0) - 0.012) < 1e-6
+    assert float(captured.get("merge_gap_sec") or 0.0) == pytest.approx(0.8)
+    assert float(captured.get("min_segment_sec") or 0.0) == pytest.approx(0.2)
 
 
 def test_get_trim_statistics_groups_methods(tmp_path: Path):

@@ -234,6 +234,8 @@ class EnqueueBody(BaseModel):
     items: list[MediaItemIn]
     profiles: Optional[List[str]] = None
     trim_method: Optional[str] = None
+    openai_merge_gap_sec: Optional[float] = None
+    openai_min_segment_sec: Optional[float] = None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -553,7 +555,22 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
         "silence_aggressive",
     }
     if raw == "openai_speech":
-        return "openai_speech_trim", json.dumps({"trim_method": "openai_speech"}, ensure_ascii=True)
+        opts: dict[str, Any] = {"trim_method": "openai_speech"}
+        if body.openai_merge_gap_sec is not None:
+            try:
+                gap = float(body.openai_merge_gap_sec)
+                if gap > 0:
+                    opts["openai_merge_gap_sec"] = gap
+            except (TypeError, ValueError):
+                pass
+        if body.openai_min_segment_sec is not None:
+            try:
+                min_seg = float(body.openai_min_segment_sec)
+                if min_seg > 0:
+                    opts["openai_min_segment_sec"] = min_seg
+            except (TypeError, ValueError):
+                pass
+        return "openai_speech_trim", json.dumps(opts, ensure_ascii=True)
     if raw in valid_silence:
         return "silence_remove", json.dumps({"trim_method": raw}, ensure_ascii=True)
     profs = [p for p in (body.profiles or []) if p in {"conservative", "balanced", "aggressive"}]

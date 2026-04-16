@@ -288,6 +288,17 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
             )
             model = settings.openai_transcription_model or "whisper-1"
             usd_per_min = float(settings.openai_whisper_usd_per_minute)
+            merge_gap_sec = 0.35
+            min_segment_sec = 0.04
+            try:
+                options = json.loads(row["job_options"] or "{}")
+                if options.get("openai_merge_gap_sec") is not None:
+                    merge_gap_sec = max(0.01, float(options["openai_merge_gap_sec"]))
+                if options.get("openai_min_segment_sec") is not None:
+                    min_segment_sec = max(0.01, float(options["openai_min_segment_sec"]))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                merge_gap_sec = 0.35
+                min_segment_sec = 0.04
             result = trim_video_to_openai_speech(
                 str(cache_path),
                 str(output_dir),
@@ -295,6 +306,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 api_key,
                 model=model,
                 usd_per_minute=usd_per_min,
+                merge_gap_sec=merge_gap_sec,
+                min_segment_sec=min_segment_sec,
             )
             out_name = Path(result["video_path"]).name
             dbmod.upsert_job(

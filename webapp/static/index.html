@@ -32,6 +32,14 @@
           <option value="silence_aggressive">Stille entfernen · Aggressive</option>
           <option value="openai_speech">OpenAI · nur gesprochene Segmente</option>
         </select>
+        <div id="openai-tuning" class="openai-tuning hidden">
+          <label class="openai-tune-field">Gap (s)
+            <input type="number" id="openai-merge-gap-sec" min="0.01" step="0.01" value="0.35" />
+          </label>
+          <label class="openai-tune-field">Min Duration (s)
+            <input type="number" id="openai-min-segment-sec" min="0.01" step="0.01" value="0.04" />
+          </label>
+        </div>
         <button type="button" id="select-all" class="btn">Alle sichtbaren</button>
         <button type="button" id="clear-sel" class="btn">Auswahl leeren</button>
         <button type="button" id="run-selected" class="btn primary">Verarbeitung starten</button>

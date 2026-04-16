@@ -113,6 +113,33 @@ main {
   cursor: not-allowed;
 }
 
+.openai-tuning {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(91, 76, 168, 0.16);
+}
+
+.openai-tune-field {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.openai-tune-field input {
+  width: 5.8rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.25rem 0.35rem;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.9rem;
