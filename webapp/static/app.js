@@ -1674,13 +1674,45 @@ async function hydrateTinderStateFromServer() {
   } catch (_) {}
 }
 
-function detectTrimMode(folder, filename) {
-  const hay = `${String(folder || "").toLowerCase()} ${String(filename || "").toLowerCase()}`;
-  if (hay.includes("openai_speech") || hay.includes("openai")) return "openai_speech";
-  if (hay.includes("silence_conservative") || hay.includes("conservative")) return "silence_conservative";
-  if (hay.includes("silence_balanced") || hay.includes("balanced")) return "silence_balanced";
-  if (hay.includes("silence_aggressive") || hay.includes("aggressive")) return "silence_aggressive";
-  return "unknown";
+function detectTrimMode(folder, filename, videoUrl = "") {
+  const hay = `${String(folder || "").toLowerCase()} ${String(filename || "").toLowerCase()} ${String(
+    videoUrl || ""
+  ).toLowerCase()}`;
+  if (
+    hay.includes("openai_speech_trim") ||
+    hay.includes("openai_speech") ||
+    hay.includes("speech_openai") ||
+    hay.includes("openai")
+  ) {
+    return "openai_speech";
+  }
+  if (
+    hay.includes("silence_conservative") ||
+    hay.includes("nosilence_conservative") ||
+    hay.includes("silence_cons") ||
+    hay.includes("conservative")
+  ) {
+    return "silence_conservative";
+  }
+  if (
+    hay.includes("silence_balanced") ||
+    hay.includes("nosilence_balanced") ||
+    hay.includes("silence_bala") ||
+    hay.includes("balanced")
+  ) {
+    return "silence_balanced";
+  }
+  if (
+    hay.includes("silence_aggressive") ||
+    hay.includes("nosilence_aggressive") ||
+    hay.includes("silence_aggr") ||
+    hay.includes("aggressive")
+  ) {
+    return "silence_aggressive";
+  }
+  if (hay.includes("silence_remove")) return "silence_balanced";
+  // Fallback to a deterministic, non-unknown mode for legacy clips with weak metadata.
+  return "silence_balanced";
 }
 
 function trimModeLabelDe(mode) {
@@ -1732,7 +1764,7 @@ function flattenGalleryClips(entries) {
         sourceFilename: (entry.source && entry.source.filename) || "",
         trimMode:
           (entry.source && (entry.source.jobType || entry.source.trimMode)) ||
-          detectTrimMode(entry.folder, (entry.source && entry.source.filename) || ""),
+          detectTrimMode(entry.folder, (entry.source && entry.source.filename) || "", clip.video_url || ""),
         index: clip.index,
         begin_sec: clip.begin_sec,
         finish_sec: clip.finish_sec,
