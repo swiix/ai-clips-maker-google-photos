@@ -1615,6 +1615,37 @@ function detectTrimMode(folder, filename) {
   return "unknown";
 }
 
+function trimModeLabelDe(mode) {
+  const key = String(mode || "").toLowerCase();
+  if (key === "openai_speech") return "OpenAI Speech";
+  if (key === "silence_conservative") return "Silence Conservative";
+  if (key === "silence_balanced") return "Silence Balanced";
+  if (key === "silence_aggressive") return "Silence Aggressive";
+  return "Unbekannt";
+}
+
+function parseDurationTagsFromText(text) {
+  const m = String(text || "").match(/_(\d+(?:d\d+)?)s_to_(\d+(?:d\d+)?)s_/i);
+  if (!m) return null;
+  const parseTag = (v) => {
+    const s = String(v || "").toLowerCase();
+    if (s.includes("d")) return Number(s.replace("d", "."));
+    return Number(s);
+  };
+  const before = parseTag(m[1]);
+  const after = parseTag(m[2]);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return null;
+  return { before, after };
+}
+
+function getClipDurations(clip) {
+  const urlDur = parseDurationTagsFromText(clip?.video_url || "");
+  if (urlDur) return urlDur;
+  const srcDur = parseDurationTagsFromText(clip?.sourceFilename || "");
+  if (srcDur) return srcDur;
+  return null;
+}
+
 function flattenGalleryClips(entries) {
   const clips = [];
   for (const entry of entries || []) {
@@ -1888,6 +1919,14 @@ function renderTinderCard() {
     <div class="tinder-meta">
       <div class="tinder-title">${escapeHtml(clip.sourceFilename || clip.folder || "Clip")}</div>
       <div id="tinder-player-state" class="tinder-player-state">Player: laedt...</div>
+      <div class="muted">Cutting-Modus: ${escapeHtml(trimModeLabelDe(clip.trimMode))}</div>
+      ${
+        (() => {
+          const d = getClipDurations(clip);
+          if (!d) return '<div class="muted">Dauer vorher/nachher: n/a</div>';
+          return `<div class="muted">Dauer vorher/nachher: ${escapeHtml(formatSeconds(d.before))}s / ${escapeHtml(formatSeconds(d.after))}s</div>`;
+        })()
+      }
       <div class="muted">${escapeHtml(formatSeconds(clip.begin_sec))}s - ${escapeHtml(formatSeconds(clip.finish_sec))}s</div>
     </div>`;
   bindTinderVideoState(root);
