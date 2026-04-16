@@ -10,7 +10,14 @@ from webapp import jobs as jobsmod
 from webapp.main import app
 from webapp.settings import Settings
 from webapp.openai_speech_trim import merge_transcript_segments
-from webapp.silence_remover import PROFILES, build_keep_segments, detect_silences
+from webapp.silence_remover import (
+    PROFILES,
+    build_keep_segments,
+    detect_silences,
+    duration_before_after_tag,
+    format_duration_for_filename,
+    output_duration_from_keep_segments,
+)
 
 
 def test_detect_silences_parses_ffmpeg_output(monkeypatch):
@@ -37,6 +44,13 @@ def test_build_keep_segments_complements_silences():
         min_keep_sec=0.2,
     )
     assert keep == [(0.0, 1.1), (1.9, 4.1), (4.9, 10.0)]
+
+
+def test_duration_filename_tags():
+    assert format_duration_for_filename(120.0) == "120s"
+    assert format_duration_for_filename(45.25) == "45d2s"
+    assert output_duration_from_keep_segments([(0.0, 2.0), (5.0, 8.0)]) == 5.0
+    assert duration_before_after_tag(100.0, 45.25) == "100s_to_45d2s"
 
 
 def test_profiles_are_all_defined():

@@ -13,7 +13,12 @@ from typing import Any
 
 import httpx
 
-from webapp.silence_remover import probe_duration_seconds, render_keep_segments_video
+from webapp.silence_remover import (
+    duration_before_after_tag,
+    output_duration_from_keep_segments,
+    probe_duration_seconds,
+    render_keep_segments_video,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,9 +142,6 @@ def trim_video_to_openai_speech(
         except OSError:
             pass
 
-    raw_path = out_dir / f"{output_prefix}_openai_verbose.json"
-    raw_path.write_text(json.dumps(verbose, ensure_ascii=True, indent=2), encoding="utf-8")
-
     segs = verbose.get("segments")
     if not isinstance(segs, list):
         segs = []
@@ -157,7 +159,12 @@ def trim_video_to_openai_speech(
     if not clamped:
         raise RuntimeError("No valid keep intervals after clamping to video duration.")
 
-    out_video = out_dir / f"{output_prefix}_speech_openai.mp4"
+    after = output_duration_from_keep_segments(clamped)
+    dur_tag = duration_before_after_tag(total, after)
+    base_name = f"{output_prefix}_{dur_tag}"
+    raw_path = out_dir / f"{base_name}_openai_verbose.json"
+    raw_path.write_text(json.dumps(verbose, ensure_ascii=True, indent=2), encoding="utf-8")
+    out_video = out_dir / f"{base_name}_speech_openai.mp4"
     render_keep_segments_video(input_video, str(out_video), clamped)
     billed_minutes = total / 60.0
     cost_usd = billed_minutes * float(usd_per_minute)

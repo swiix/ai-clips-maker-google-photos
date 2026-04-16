@@ -42,6 +42,26 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, text=True, capture_output=True, check=True)
 
 
+def format_duration_for_filename(seconds: float) -> str:
+    """
+    Short token for filenames, e.g. 120s or 45d3s (45.3 seconds; dot replaced by d).
+    """
+    s = max(0.0, float(seconds))
+    if abs(s - round(s)) < 0.05:
+        return f"{int(round(s))}s"
+    return f"{s:.1f}".replace(".", "d") + "s"
+
+
+def output_duration_from_keep_segments(keep_segments: list[tuple[float, float]]) -> float:
+    """Total duration of concatenated keep ranges (matches rendered output length)."""
+    return sum(max(0.0, e - s) for s, e in keep_segments)
+
+
+def duration_before_after_tag(before_sec: float, after_sec: float) -> str:
+    """Build a token like 120s_to_45d3s for output filenames."""
+    return f"{format_duration_for_filename(before_sec)}_to_{format_duration_for_filename(after_sec)}"
+
+
 def probe_duration_seconds(video_path: str) -> float:
     proc = subprocess.run(
         ["ffmpeg", "-hide_banner", "-i", video_path],
@@ -189,7 +209,9 @@ def remove_silence_profiles(input_video: str, output_dir: str, output_prefix: st
             padding_sec=profile.padding_sec,
             min_keep_sec=profile.min_keep_sec,
         )
-        output_path = base / f"{output_prefix}_nosilence_{profile.name}.mp4"
+        after = output_duration_from_keep_segments(keep)
+        dur_tag = duration_before_after_tag(total, after)
+        output_path = base / f"{output_prefix}_{dur_tag}_nosilence_{profile.name}.mp4"
         _render_segments(input_video, str(output_path), keep)
         rendered.append(
             RenderedProfile(
@@ -229,7 +251,9 @@ def remove_silence_selected_profiles(
             padding_sec=profile.padding_sec,
             min_keep_sec=profile.min_keep_sec,
         )
-        output_path = base / f"{output_prefix}_nosilence_{profile.name}.mp4"
+        after = output_duration_from_keep_segments(keep)
+        dur_tag = duration_before_after_tag(total, after)
+        output_path = base / f"{output_prefix}_{dur_tag}_nosilence_{profile.name}.mp4"
         _render_segments(input_video, str(output_path), keep)
         rendered.append(
             RenderedProfile(
