@@ -828,21 +828,38 @@ function renderJobTypeBadge(jobType) {
   return `<span class="job-badge ${css}">${escapeHtml(value)}</span>`;
 }
 
-function renderTrimMethodBadge(optionsRaw) {
+function resolveTrimMode(trimMethodLabel, optionsRaw, jobType) {
+  const label = String(trimMethodLabel || "").trim().toLowerCase();
+  if (label) return label;
   try {
     const parsed = JSON.parse(optionsRaw || "{}");
-    const m = String(parsed.trim_method || "");
-    const label = trimMethodLabel(m) || m || "-";
-    const css =
-      m === "openai_speech"
-        ? "job-badge-method-openai"
-        : m.startsWith("silence_")
-        ? "job-badge-method-silence"
-        : "job-badge-neutral";
-    return `<span class="job-badge ${css}">${escapeHtml(label)}</span>`;
+    const tm = String(parsed.trim_method || "").trim().toLowerCase();
+    if (!tm) return "unknown";
+    if (tm === "silence_all") {
+      const profiles = Array.isArray(parsed.profiles) ? parsed.profiles : [];
+      const first = String(profiles[0] || "").trim().toLowerCase();
+      if (["conservative", "balanced", "aggressive"].includes(first)) return `silence_${first}`;
+      return "silence_balanced";
+    }
+    return tm;
   } catch (_) {
-    return '<span class="job-badge job-badge-neutral">-</span>';
+    const jt = String(jobType || "").trim();
+    if (jt === "openai_speech_trim") return "openai_speech";
+    if (jt === "silence_remove") return "silence_balanced";
+    return "unknown";
   }
+}
+
+function renderTrimMethodBadge(trimMethodLabel, optionsRaw, jobType) {
+  const m = resolveTrimMode(trimMethodLabel, optionsRaw, jobType);
+  const label = trimMethodLabel(m) || m || "-";
+  const css =
+    m === "openai_speech"
+      ? "job-badge-method-openai"
+      : m.startsWith("silence_")
+      ? "job-badge-method-silence"
+      : "job-badge-neutral";
+  return `<span class="job-badge ${css}">${escapeHtml(label)}</span>`;
 }
 
 async function openJobVideo(jobId) {
@@ -1290,7 +1307,11 @@ async function loadJobs() {
     const jobType = row.job_type || "clip_pipeline";
     const optionsSummary = parseJobOptionsSummary(row.job_options);
     const profExtra = renderProfileBadges(row.job_options);
-    const methodBlock = `<div class="job-badges">${renderTrimMethodBadge(row.job_options)} ${renderReviewStateBadge(
+    const methodBlock = `<div class="job-badges">${renderTrimMethodBadge(
+      row.trim_method_label,
+      row.job_options,
+      row.job_type
+    )} ${renderReviewStateBadge(
       row.review_state
     )}</div>${
       profExtra ? `<div class="job-badges" style="margin-top:0.25rem">${profExtra}</div>` : ""
