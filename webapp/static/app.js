@@ -828,8 +828,8 @@ function renderJobTypeBadge(jobType) {
   return `<span class="job-badge ${css}">${escapeHtml(value)}</span>`;
 }
 
-function resolveTrimMode(trimMethodLabel, optionsRaw, jobType) {
-  const label = String(trimMethodLabel || "").trim().toLowerCase();
+function resolveTrimMode(trimMethodLabelValue, optionsRaw, jobType) {
+  const label = String(trimMethodLabelValue || "").trim().toLowerCase();
   if (label) return label;
   try {
     const parsed = JSON.parse(optionsRaw || "{}");
@@ -850,8 +850,8 @@ function resolveTrimMode(trimMethodLabel, optionsRaw, jobType) {
   }
 }
 
-function renderTrimMethodBadge(trimMethodLabel, optionsRaw, jobType) {
-  const m = resolveTrimMode(trimMethodLabel, optionsRaw, jobType);
+function renderTrimMethodBadge(trimMethodLabelValue, optionsRaw, jobType) {
+  const m = resolveTrimMode(trimMethodLabelValue, optionsRaw, jobType);
   const label = trimMethodLabel(m) || m || "-";
   const css =
     m === "openai_speech"
@@ -1313,6 +1313,7 @@ async function loadJobs() {
     let failedTransitions = 0;
     let doneTransitions = 0;
     let renderErrors = 0;
+    let appended = 0;
 
     for (const row of rows) {
       try {
@@ -1357,6 +1358,7 @@ async function loadJobs() {
           row.error || ""
         )}</td>`;
         tb.appendChild(tr);
+        appended += 1;
       } catch (_) {
         renderErrors += 1;
       }
@@ -1368,7 +1370,7 @@ async function loadJobs() {
 
     if (jobsStatus) {
       const active = runningCount + queuedCount;
-      const head = `Sortierung: ${sortKey} · Geladen: ${rawCount} · Angezeigt: ${rows.length}`;
+      const head = `Sortierung: ${sortKey} · Geladen: ${rawCount} · Angezeigt: ${appended}`;
       if (active > 0) {
         jobsStatus.textContent = `${head} · Aktiv: ${runningCount} running, ${queuedCount} queued`;
       } else {
