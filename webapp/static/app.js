@@ -853,7 +853,35 @@ function startCachePolling() {
 
 async function loadJobs() {
   const r = await fetch("/api/jobs");
-  const rows = await r.json();
+  let rows = await r.json();
+  const sortKey = ($("#jobs-sort")?.value || "updated_desc").toLowerCase();
+  const minSavedSec = Number($("#jobs-min-saved-sec")?.value || "");
+  const minSavedPct = Number($("#jobs-min-saved-pct")?.value || "");
+
+  rows = rows.filter((row) => {
+    const savedSec = Number(row.cut_saved_seconds || 0);
+    const savedPct = Number(row.cut_saved_percent || 0);
+    if (!Number.isNaN(minSavedSec) && $("#jobs-min-saved-sec")?.value !== "" && savedSec < minSavedSec) {
+      return false;
+    }
+    if (!Number.isNaN(minSavedPct) && $("#jobs-min-saved-pct")?.value !== "" && savedPct < minSavedPct) {
+      return false;
+    }
+    return true;
+  });
+
+  const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? Number.NEGATIVE_INFINITY : Number(v));
+  rows.sort((a, b) => {
+    if (sortKey === "saved_sec_desc") return num(b.cut_saved_seconds) - num(a.cut_saved_seconds);
+    if (sortKey === "saved_sec_asc") return num(a.cut_saved_seconds) - num(b.cut_saved_seconds);
+    if (sortKey === "saved_pct_desc") return num(b.cut_saved_percent) - num(a.cut_saved_percent);
+    if (sortKey === "saved_pct_asc") return num(a.cut_saved_percent) - num(b.cut_saved_percent);
+    const au = Number(a.updated_at || 0);
+    const bu = Number(b.updated_at || 0);
+    if (sortKey === "updated_asc") return au - bu;
+    return bu - au;
+  });
+
   state.latestJobRow = rows.length ? rows[0] : null;
   const tb = $("#jobs-body");
   tb.innerHTML = "";
@@ -949,6 +977,9 @@ async function loadCutsView() {
 }
 
 $("#refresh-jobs").addEventListener("click", loadJobs);
+$("#jobs-sort").addEventListener("change", loadJobs);
+$("#jobs-min-saved-sec").addEventListener("input", loadJobs);
+$("#jobs-min-saved-pct").addEventListener("input", loadJobs);
 
 async function copyLatestJob() {
   const row = state.latestJobRow;

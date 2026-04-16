@@ -73,6 +73,24 @@
     <section id="panel-jobs" class="panel">
       <button type="button" id="refresh-jobs" class="btn">Aktualisieren</button>
       <button type="button" id="copy-latest-job" class="btn">Letzten Eintrag kopieren</button>
+      <div class="jobs-filters">
+        <label class="jobs-filter-field">Sortieren
+          <select id="jobs-sort" class="btn">
+            <option value="updated_desc">Zuletzt aktualisiert (neu)</option>
+            <option value="updated_asc">Zuletzt aktualisiert (alt)</option>
+            <option value="saved_sec_desc">Ersparnis (s) ↓</option>
+            <option value="saved_sec_asc">Ersparnis (s) ↑</option>
+            <option value="saved_pct_desc">Schnitt (%) ↓</option>
+            <option value="saved_pct_asc">Schnitt (%) ↑</option>
+          </select>
+        </label>
+        <label class="jobs-filter-field">Min Ersparnis (s)
+          <input type="number" id="jobs-min-saved-sec" min="0" step="0.1" placeholder="z.B. 5" />
+        </label>
+        <label class="jobs-filter-field">Min Schnitt (%)
+          <input type="number" id="jobs-min-saved-pct" min="0" max="100" step="0.1" placeholder="z.B. 20" />
+        </label>
+      </div>
       <p id="jobs-status" class="muted"></p>
       <table class="jobs">
         <thead>

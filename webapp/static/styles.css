@@ -585,6 +585,31 @@ video.preview:-webkit-full-screen {
   color: #9ff3cb;
 }
 
+.jobs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.55rem 0 0.45rem;
+}
+
+.jobs-filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.jobs-filter-field input {
+  width: 6.2rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.28rem 0.36rem;
+}
+
 code {
   font-size: 0.85em;
   color: var(--accent);
