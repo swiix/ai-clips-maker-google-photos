@@ -1660,7 +1660,9 @@ function flattenGalleryClips(entries) {
           (entry.source && (entry.source.mediaItemId || entry.source.media_item_id)) || null,
         folder: entry.folder || "",
         sourceFilename: (entry.source && entry.source.filename) || "",
-        trimMode: detectTrimMode(entry.folder, (entry.source && entry.source.filename) || ""),
+        trimMode:
+          (entry.source && entry.source.trimMode) ||
+          detectTrimMode(entry.folder, (entry.source && entry.source.filename) || ""),
         index: clip.index,
         begin_sec: clip.begin_sec,
         finish_sec: clip.finish_sec,

@@ -1075,6 +1075,28 @@ def _build_gallery_entries(
     include_orphans: bool,
     max_clips: int | None = None,
 ) -> list[dict[str, Any]]:
+    def _trim_mode_from_job(trim_method_label: Any, job_options: Any) -> str:
+        label = str(trim_method_label or "").strip().lower()
+        if label:
+            return label
+        try:
+            opts = json.loads(str(job_options or "{}"))
+        except Exception:
+            opts = {}
+        tm = str(opts.get("trim_method") or "").strip().lower()
+        if not tm:
+            return "unknown"
+        if tm in {"silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech"}:
+            return tm
+        if tm == "silence_all":
+            profs = opts.get("profiles") or []
+            if isinstance(profs, list) and profs:
+                first = str(profs[0] or "").strip().lower()
+                if first in {"conservative", "balanced", "aggressive"}:
+                    return f"silence_{first}"
+            return "silence_balanced"
+        return tm
+
     root = settings.output_dir
     if not root.is_dir():
         return []
@@ -1087,7 +1109,7 @@ def _build_gallery_entries(
     # Build gallery primarily from jobs table as source of truth.
     done_rows = conn.execute(
         """
-        SELECT id, media_item_id, filename, creation_time, output_dir
+        SELECT id, media_item_id, filename, creation_time, output_dir, trim_method_label, job_options
         FROM jobs
         WHERE status = 'done' AND output_dir IS NOT NULL
         ORDER BY updated_at DESC
@@ -1142,6 +1164,7 @@ def _build_gallery_entries(
                     "creationTime": r["creation_time"],
                     "mediaItemId": r["media_item_id"],
                     "jobId": int(r["id"]),
+                    "trimMode": _trim_mode_from_job(r["trim_method_label"], r["job_options"]),
                 },
                 "clips": clips_out,
                 "error": None,
