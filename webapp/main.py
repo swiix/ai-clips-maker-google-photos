@@ -1026,11 +1026,12 @@ def api_job_stats(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
 
 
 @app.get("/api/gallery")
-def gallery(settings: SettingsDep) -> list[dict[str, Any]]:
+def gallery(settings: SettingsDep, conn: DbDep) -> list[dict[str, Any]]:
     root = settings.output_dir
     if not root.is_dir():
         return []
     entries: list[dict[str, Any]] = []
+    seen_video_rels: set[str] = set()
     manifests = sorted(root.glob("job_manifest*.json"))
     for man_path in manifests:
         man = json.loads(man_path.read_text(encoding="utf-8"))
@@ -1046,6 +1047,8 @@ def gallery(settings: SettingsDep) -> list[dict[str, Any]]:
         for c in man.get("clips") or []:
             vr = c.get("video_relpath")
             tr = c.get("transcript_relpath")
+            if vr:
+                seen_video_rels.add(str(vr).replace("\\", "/"))
             clips_out.append(
                 {
                     **c,
@@ -1060,6 +1063,65 @@ def gallery(settings: SettingsDep) -> list[dict[str, Any]]:
                 "source": meta,
                 "clips": clips_out,
                 "error": man.get("error"),
+            }
+        )
+
+    # Include all finished job outputs as video items, even when no job_manifest exists
+    # (e.g. silence/openai output files that are generated directly as MP4).
+    done_rows = conn.execute(
+        """
+        SELECT id, media_item_id, filename, creation_time, output_dir
+        FROM jobs
+        WHERE status = 'done' AND output_dir IS NOT NULL
+        ORDER BY updated_at DESC
+        """
+    ).fetchall()
+    base = settings.output_dir.resolve()
+    for r in done_rows:
+        out_dir = Path(str(r["output_dir"] or "")).expanduser()
+        if not out_dir.is_absolute():
+            out_dir = (Path.cwd() / out_dir).resolve()
+        else:
+            out_dir = out_dir.resolve()
+        if not out_dir.is_dir():
+            continue
+        short_id = str(r["media_item_id"] or "")[:12]
+        candidates = sorted(out_dir.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if short_id:
+            preferred = [p for p in candidates if short_id in p.name]
+            if preferred:
+                candidates = preferred
+        clips_out: list[dict[str, Any]] = []
+        for idx, target in enumerate(candidates, start=1):
+            try:
+                rel = target.resolve().relative_to(base)
+            except ValueError:
+                continue
+            rel_url = str(rel).replace("\\", "/")
+            if rel_url in seen_video_rels:
+                continue
+            seen_video_rels.add(rel_url)
+            clips_out.append(
+                {
+                    "index": idx,
+                    "begin_sec": 0,
+                    "finish_sec": 0,
+                    "video_url": f"/api/gallery/file/{rel_url}",
+                    "transcript_url": None,
+                }
+            )
+        if not clips_out:
+            continue
+        entries.append(
+            {
+                "folder": f"job_{int(r['id'])}",
+                "source": {
+                    "filename": r["filename"],
+                    "creationTime": r["creation_time"],
+                    "mediaItemId": r["media_item_id"],
+                },
+                "clips": clips_out,
+                "error": None,
             }
         )
     return entries
