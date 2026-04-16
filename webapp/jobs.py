@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 _task_queue: queue.Queue[int | None] = queue.Queue()
 _worker_started = False
+_worker_count = 1
 _worker_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 _DURATION_TAG_RE = re.compile(r"_(\d+(?:d\d+)?)s_to_(\d+(?:d\d+)?)s_")
@@ -40,11 +41,15 @@ def enqueue_job_id(job_id: int) -> None:
 
 
 def start_worker(conn_factory, settings: "Settings") -> None:
-    global _worker_started
+    global _worker_started, _worker_count
     with _worker_lock:
         if _worker_started:
             return
         _worker_started = True
+        try:
+            _worker_count = max(1, int(getattr(settings, "worker_concurrency", 1)))
+        except (TypeError, ValueError):
+            _worker_count = 1
 
     def loop() -> None:
         while True:
@@ -83,11 +88,13 @@ def start_worker(conn_factory, settings: "Settings") -> None:
                 conn.close()
             _task_queue.task_done()
 
-    threading.Thread(target=loop, name="clip-worker", daemon=True).start()
+    for idx in range(_worker_count):
+        threading.Thread(target=loop, name=f"clip-worker-{idx+1}", daemon=True).start()
 
 
 def stop_worker() -> None:
-    _task_queue.put(None)
+    for _ in range(max(1, _worker_count)):
+        _task_queue.put(None)
 
 
 def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> None:

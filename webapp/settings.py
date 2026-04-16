@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     scheduler_interval_minutes: int = 0
     auto_enqueue_new_videos: bool = False
     scheduler_max_new_per_run: int = 25
+    worker_concurrency: int = 10
 
     photos_page_size: int = 50
 
