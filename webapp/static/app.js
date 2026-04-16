@@ -111,7 +111,8 @@ function computeUnseenFromClips(clips) {
 
 async function refreshTinderwatchBadgeFromServer() {
   try {
-    const r = await fetch("/api/gallery");
+    // Badge can skip legacy orphan scan for fast updates.
+    const r = await fetch("/api/gallery?include_orphans=0");
     if (!r.ok) return;
     const data = await r.json();
     const clips = flattenGalleryClips(data);
@@ -1436,7 +1437,7 @@ function stopJobsPolling() {
 }
 
 async function loadGallery() {
-  const r = await fetch("/api/gallery");
+  const r = await fetch("/api/gallery?include_orphans=1");
   const data = await r.json();
   const root = $("#gallery-root");
   root.innerHTML = "";
@@ -1928,7 +1929,7 @@ function exportTinderLikes() {
 
 async function loadTinderWatch() {
   try {
-    const r = await fetch("/api/gallery");
+    const r = await fetch("/api/gallery?include_orphans=1");
     const data = await r.json();
     state.tinderClips = flattenGalleryClips(data);
     if (state.tinderIndex >= state.tinderClips.length) state.tinderIndex = 0;

@@ -87,6 +87,8 @@ _ensure_ffmpeg_on_path()
 _oauth_states: dict[str, float] = {}
 _scheduler: BackgroundScheduler | None = None
 _preflight_cache: dict[str, Any] = {"ts": 0.0, "result": None}
+_gallery_cache: dict[str, dict[str, Any]] = {}
+_GALLERY_CACHE_TTL_SEC = 12.0
 _DURATION_TAG_RE = re.compile(r"_(\d+(?:d\d+)?)s_to_(\d+(?:d\d+)?)s_")
 
 
@@ -1066,8 +1068,12 @@ def api_job_stats(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
     }
 
 
-@app.get("/api/gallery")
-def gallery(settings: SettingsDep, conn: DbDep) -> list[dict[str, Any]]:
+def _build_gallery_entries(
+    settings: Settings,
+    conn,
+    *,
+    include_orphans: bool,
+) -> list[dict[str, Any]]:
     root = settings.output_dir
     if not root.is_dir():
         return []
@@ -1167,42 +1173,61 @@ def gallery(settings: SettingsDep, conn: DbDep) -> list[dict[str, Any]]:
             }
         )
 
-    # Final fallback: include any MP4 files in output root/subfolders that were not
-    # covered by manifests or done-job based discovery. This ensures old outputs are
-    # still visible in TinderWatch for review.
-    orphan_clips: list[dict[str, Any]] = []
-    all_mp4 = sorted(root.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for idx, target in enumerate(all_mp4, start=1):
-        try:
-            rel = target.resolve().relative_to(base)
-        except ValueError:
-            continue
-        rel_url = str(rel).replace("\\", "/")
-        if rel_url in seen_video_rels:
-            continue
-        seen_video_rels.add(rel_url)
-        orphan_clips.append(
-            {
-                "index": idx,
-                "begin_sec": 0,
-                "finish_sec": 0,
-                "video_url": f"/api/gallery/file/{rel_url}",
-                "transcript_url": None,
-            }
-        )
-    if orphan_clips:
-        entries.append(
-            {
-                "folder": "legacy_outputs",
-                "source": {
-                    "filename": "Legacy Output Videos",
-                    "creationTime": None,
-                    "mediaItemId": None,
-                },
-                "clips": orphan_clips,
-                "error": None,
-            }
-        )
+    if include_orphans:
+        # Final fallback: include any MP4 files in output root/subfolders that were not
+        # covered by manifests or done-job based discovery. This ensures old outputs are
+        # still visible in TinderWatch for review.
+        orphan_clips: list[dict[str, Any]] = []
+        all_mp4 = sorted(root.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for idx, target in enumerate(all_mp4, start=1):
+            try:
+                rel = target.resolve().relative_to(base)
+            except ValueError:
+                continue
+            rel_url = str(rel).replace("\\", "/")
+            if rel_url in seen_video_rels:
+                continue
+            seen_video_rels.add(rel_url)
+            orphan_clips.append(
+                {
+                    "index": idx,
+                    "begin_sec": 0,
+                    "finish_sec": 0,
+                    "video_url": f"/api/gallery/file/{rel_url}",
+                    "transcript_url": None,
+                }
+            )
+        if orphan_clips:
+            entries.append(
+                {
+                    "folder": "legacy_outputs",
+                    "source": {
+                        "filename": "Legacy Output Videos",
+                        "creationTime": None,
+                        "mediaItemId": None,
+                    },
+                    "clips": orphan_clips,
+                    "error": None,
+                }
+            )
+    return entries
+
+
+@app.get("/api/gallery")
+def gallery(
+    settings: SettingsDep,
+    conn: DbDep,
+    include_orphans: bool = Query(True),
+    use_cache: bool = Query(True),
+) -> list[dict[str, Any]]:
+    cache_key = "with_orphans" if include_orphans else "without_orphans"
+    now = time.time()
+    if use_cache:
+        cached = _gallery_cache.get(cache_key)
+        if cached and (now - float(cached.get("ts", 0.0))) < _GALLERY_CACHE_TTL_SEC:
+            return cached["entries"]
+    entries = _build_gallery_entries(settings, conn, include_orphans=include_orphans)
+    _gallery_cache[cache_key] = {"ts": now, "entries": entries}
     return entries
 
 
