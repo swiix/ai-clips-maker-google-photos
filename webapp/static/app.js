@@ -1693,6 +1693,30 @@ function getCurrentTinderClip() {
   return state.tinderClips[state.tinderIndex] || null;
 }
 
+function isReviewedDecision(value) {
+  const d = String(value || "").toLowerCase();
+  return d === "like" || d === "dislike";
+}
+
+function filterUnreviewedClips(clips) {
+  return (clips || []).filter((clip) => !isReviewedDecision(state.tinderDecisions.get(clip.key)?.decision));
+}
+
+function pruneReviewedFromCurrentClips() {
+  const currentKey = getCurrentTinderClip()?.key || null;
+  state.tinderClips = filterUnreviewedClips(state.tinderClips);
+  if (!state.tinderClips.length) {
+    state.tinderIndex = 0;
+    return;
+  }
+  if (currentKey) {
+    const idx = state.tinderClips.findIndex((c) => c.key === currentKey);
+    state.tinderIndex = idx >= 0 ? idx : Math.min(state.tinderIndex, state.tinderClips.length - 1);
+  } else if (state.tinderIndex >= state.tinderClips.length) {
+    state.tinderIndex = 0;
+  }
+}
+
 function markTinderLiked(clip) {
   if (!clip) return;
   state.tinderLikes.set(clip.key, {
@@ -1900,7 +1924,7 @@ function updateTinderStatus() {
   for (const key of state.tinderLikes.keys()) {
     if (state.tinderDownloaded.get(key)?.downloaded) downloadedLikes += 1;
   }
-  el.textContent = `${idx}/${total} Clips · Jobs: ${jobsClips} · Legacy: ${legacyClips} · Likes: ${likes} · Downloads: ${downloadedLikes}/${likes}`;
+  el.textContent = `${idx}/${total} Offene Clips · Jobs: ${jobsClips} · Legacy: ${legacyClips} · Likes: ${likes} · Downloads: ${downloadedLikes}/${likes}`;
 }
 
 function bindTinderVideoState(root) {
@@ -1975,8 +1999,12 @@ function renderTinderCard() {
 }
 
 function tinderNext() {
-  if (!state.tinderClips.length) return;
-  state.tinderIndex = (state.tinderIndex + 1) % state.tinderClips.length;
+  pruneReviewedFromCurrentClips();
+  if (!state.tinderClips.length) {
+    renderTinderCard();
+    return;
+  }
+  state.tinderIndex = state.tinderIndex % state.tinderClips.length;
   renderTinderCard();
 }
 
@@ -2037,7 +2065,7 @@ async function loadTinderWatch(forceFresh = false) {
     const quickUrl = `/api/gallery?include_orphans=1&use_cache=${forceFresh ? 0 : 1}&max_clips=20`;
     const quickResponse = await fetch(quickUrl);
     const quickData = await quickResponse.json();
-    state.tinderClips = flattenGalleryClips(quickData);
+    state.tinderClips = filterUnreviewedClips(flattenGalleryClips(quickData));
     if (state.tinderIndex >= state.tinderClips.length) state.tinderIndex = 0;
     setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
     renderTinderCard();
@@ -2049,7 +2077,7 @@ async function loadTinderWatch(forceFresh = false) {
       .then((fullData) => {
         const current = getCurrentTinderClip();
         const currentKey = current?.key || null;
-        const allClips = flattenGalleryClips(fullData);
+        const allClips = filterUnreviewedClips(flattenGalleryClips(fullData));
         if (!allClips.length) return;
         state.tinderClips = allClips;
         if (currentKey) {
@@ -2141,9 +2169,9 @@ loadTinderStateFromStorage();
 hydrateTinderStateFromServer().then(() => {
   renderTinderStats();
   refreshTinderwatchBadgeFromServer();
+  // After server review sync, reload clips and keep only unreviewed.
+  loadTinderWatch(true);
 });
-// Mirror "Clips neu laden" behavior on full page reload.
-loadTinderWatch(true);
 updateTinderLikeFilterButton();
 renderTinderStats();
 updateSettingsDaysButtons();
