@@ -1244,6 +1244,7 @@ function startCachePolling() {
 async function loadJobs() {
   const r = await fetch("/api/jobs");
   let rows = await r.json();
+  const rawCount = rows.length;
   const sortKey = ($("#jobs-sort")?.value || "updated_desc").toLowerCase();
   const minSavedSec = Number($("#jobs-min-saved-sec")?.value || "");
   const minSavedPct = Number($("#jobs-min-saved-pct")?.value || "");
@@ -1259,6 +1260,18 @@ async function loadJobs() {
     }
     return true;
   });
+
+  const jobsStatus = $("#jobs-status");
+  if (rows.length === 0 && rawCount > 0) {
+    const secActive = $("#jobs-min-saved-sec")?.value !== "";
+    const pctActive = $("#jobs-min-saved-pct")?.value !== "";
+    const activeFilters = [];
+    if (secActive) activeFilters.push(`Ersparnis(s) ≥ ${$("#jobs-min-saved-sec")?.value}`);
+    if (pctActive) activeFilters.push(`Schnitt(%) ≥ ${$("#jobs-min-saved-pct")?.value}`);
+    if (jobsStatus && activeFilters.length) {
+      jobsStatus.textContent = `0 Jobs nach Filtern (${activeFilters.join(" · ")}). Filter leeren, dann „Aktualisieren“.`;
+    }
+  }
 
   const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? Number.NEGATIVE_INFINITY : Number(v));
   rows.sort((a, b) => {
@@ -1286,7 +1299,6 @@ async function loadJobs() {
   state.latestJobRow = rows.length ? rows[0] : null;
   const tb = $("#jobs-body");
   tb.innerHTML = "";
-  const jobsStatus = $("#jobs-status");
   let runningCount = 0;
   let queuedCount = 0;
   let failedTransitions = 0;
