@@ -44,7 +44,22 @@ def init_db(conn: sqlite3.Connection) -> None:
             value TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS tinder_reviews (
+            clip_key TEXT PRIMARY KEY,
+            decision TEXT,
+            downloaded INTEGER NOT NULL DEFAULT 0,
+            trim_mode TEXT,
+            source_filename TEXT,
+            folder TEXT,
+            video_url TEXT,
+            begin_sec REAL,
+            finish_sec REAL,
+            created_at REAL,
+            updated_at REAL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+        CREATE INDEX IF NOT EXISTS idx_tinder_reviews_updated_at ON tinder_reviews(updated_at);
         """
     )
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)").fetchall()}
@@ -362,3 +377,98 @@ def set_sync_value(conn: sqlite3.Connection, key: str, value: str) -> None:
             (key, value),
         )
         conn.commit()
+
+
+def upsert_tinder_review(
+    conn: sqlite3.Connection,
+    *,
+    clip_key: str,
+    decision: str | None = None,
+    downloaded: bool | None = None,
+    trim_mode: str | None = None,
+    source_filename: str | None = None,
+    folder: str | None = None,
+    video_url: str | None = None,
+    begin_sec: float | None = None,
+    finish_sec: float | None = None,
+) -> None:
+    now = time.time()
+    decision_norm: str | None = None
+    if decision is not None:
+        raw = str(decision).strip().lower()
+        if raw in {"like", "dislike"}:
+            decision_norm = raw
+    downloaded_norm: int | None = None
+    if downloaded is not None:
+        downloaded_norm = 1 if bool(downloaded) else 0
+    with _lock:
+        row = conn.execute(
+            "SELECT clip_key FROM tinder_reviews WHERE clip_key = ?",
+            (clip_key,),
+        ).fetchone()
+        if row:
+            conn.execute(
+                """
+                UPDATE tinder_reviews SET
+                    decision = COALESCE(?, decision),
+                    downloaded = COALESCE(?, downloaded),
+                    trim_mode = COALESCE(?, trim_mode),
+                    source_filename = COALESCE(?, source_filename),
+                    folder = COALESCE(?, folder),
+                    video_url = COALESCE(?, video_url),
+                    begin_sec = COALESCE(?, begin_sec),
+                    finish_sec = COALESCE(?, finish_sec),
+                    updated_at = ?
+                WHERE clip_key = ?
+                """,
+                (
+                    decision_norm,
+                    downloaded_norm,
+                    trim_mode,
+                    source_filename,
+                    folder,
+                    video_url,
+                    begin_sec,
+                    finish_sec,
+                    now,
+                    clip_key,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO tinder_reviews (
+                    clip_key, decision, downloaded, trim_mode, source_filename, folder, video_url,
+                    begin_sec, finish_sec, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    clip_key,
+                    decision_norm,
+                    downloaded_norm if downloaded_norm is not None else 0,
+                    trim_mode,
+                    source_filename,
+                    folder,
+                    video_url,
+                    begin_sec,
+                    finish_sec,
+                    now,
+                    now,
+                ),
+            )
+        conn.commit()
+
+
+def list_tinder_reviews(conn: sqlite3.Connection, limit: int = 5000) -> list[dict[str, Any]]:
+    with _lock:
+        rows = conn.execute(
+            """
+            SELECT clip_key, decision, downloaded, trim_mode, source_filename, folder, video_url,
+                   begin_sec, finish_sec, created_at, updated_at
+            FROM tinder_reviews
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]

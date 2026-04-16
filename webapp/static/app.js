@@ -1494,6 +1494,107 @@ function persistTinderState() {
   saveJsonStorage(STORAGE_KEYS.tinderDecisions, Object.fromEntries(state.tinderDecisions.entries()));
 }
 
+async function upsertTinderReviewOnServer(clip, patch = {}) {
+  if (!clip || !clip.key) return;
+  const payload = {
+    clip_key: clip.key,
+    trim_mode: clip.trimMode || "unknown",
+    source_filename: clip.sourceFilename || "",
+    folder: clip.folder || "",
+    video_url: clip.video_url || "",
+    begin_sec: Number.isFinite(Number(clip.begin_sec)) ? Number(clip.begin_sec) : null,
+    finish_sec: Number.isFinite(Number(clip.finish_sec)) ? Number(clip.finish_sec) : null,
+    ...patch,
+  };
+  try {
+    await fetch("/api/tinder/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (_) {}
+}
+
+async function syncLocalTinderStateToServer(serverRows) {
+  const known = new Set((serverRows || []).map((r) => String(r.clip_key || "")));
+  for (const [key, review] of state.tinderDecisions.entries()) {
+    if (known.has(key)) continue;
+    const clip = {
+      key,
+      trimMode: review.trimMode || "unknown",
+      sourceFilename: review.sourceFilename || "",
+      folder: review.folder || "",
+      video_url: review.video_url || "",
+      begin_sec: review.begin_sec,
+      finish_sec: review.finish_sec,
+    };
+    const downloaded = Boolean(state.tinderDownloaded.get(key)?.downloaded);
+    await upsertTinderReviewOnServer(clip, { decision: review.decision, downloaded });
+  }
+  for (const [key, like] of state.tinderLikes.entries()) {
+    if (known.has(key) || state.tinderDecisions.has(key)) continue;
+    const clip = {
+      key,
+      trimMode: like.trimMode || "unknown",
+      sourceFilename: like.sourceFilename || "",
+      folder: like.folder || "",
+      video_url: like.video_url || "",
+      begin_sec: like.begin_sec,
+      finish_sec: like.finish_sec,
+    };
+    const downloaded = Boolean(state.tinderDownloaded.get(key)?.downloaded);
+    await upsertTinderReviewOnServer(clip, { decision: "like", downloaded });
+  }
+}
+
+function applyServerTinderReviews(rows) {
+  for (const row of rows || []) {
+    const key = String(row.clip_key || "");
+    if (!key) continue;
+    const decision = String(row.decision || "").toLowerCase();
+    const downloaded = Boolean(Number(row.downloaded || 0));
+    if (decision === "like") {
+      state.tinderLikes.set(key, {
+        key,
+        folder: row.folder || "",
+        sourceFilename: row.source_filename || "",
+        index: 0,
+        begin_sec: row.begin_sec ?? 0,
+        finish_sec: row.finish_sec ?? 0,
+        video_url: row.video_url || "",
+        liked_at: new Date(Number(row.updated_at || Date.now() / 1000) * 1000).toISOString(),
+      });
+    }
+    if (decision === "like" || decision === "dislike") {
+      state.tinderDecisions.set(key, {
+        key,
+        decision,
+        trimMode: row.trim_mode || "unknown",
+        sourceFilename: row.source_filename || "",
+        folder: row.folder || "",
+        decided_at: new Date(Number(row.updated_at || Date.now() / 1000) * 1000).toISOString(),
+      });
+    }
+    if (downloaded) {
+      state.tinderDownloaded.set(key, {
+        downloaded: true,
+        downloaded_at: new Date(Number(row.updated_at || Date.now() / 1000) * 1000).toISOString(),
+      });
+    }
+  }
+}
+
+async function hydrateTinderStateFromServer() {
+  try {
+    const r = await fetch("/api/tinder/reviews");
+    if (!r.ok) return;
+    const rows = await r.json();
+    await syncLocalTinderStateToServer(rows);
+    applyServerTinderReviews(rows);
+    persistTinderState();
+  } catch (_) {}
+}
+
 function detectTrimMode(folder, filename) {
   const hay = `${String(folder || "").toLowerCase()} ${String(filename || "").toLowerCase()}`;
   if (hay.includes("openai_speech") || hay.includes("openai")) return "openai_speech";
@@ -1542,6 +1643,7 @@ function markTinderLiked(clip) {
     liked_at: new Date().toISOString(),
   });
   persistTinderState();
+  upsertTinderReviewOnServer(clip, { decision: "like" });
 }
 
 function markTinderDecision(clip, decision) {
@@ -1555,6 +1657,7 @@ function markTinderDecision(clip, decision) {
     decided_at: new Date().toISOString(),
   });
   persistTinderState();
+  upsertTinderReviewOnServer(clip, { decision });
 }
 
 function markTinderDownloaded(clip) {
@@ -1564,6 +1667,7 @@ function markTinderDownloaded(clip) {
     downloaded_at: new Date().toISOString(),
   });
   persistTinderState();
+  upsertTinderReviewOnServer(clip, { downloaded: true });
 }
 
 function triggerClipDownload(clip) {
@@ -1889,6 +1993,10 @@ startCachePolling();
 restoreCutTuningFromStorage();
 updateOpenAiTuningVisibility();
 loadTinderStateFromStorage();
+hydrateTinderStateFromServer().then(() => {
+  renderTinderStats();
+  refreshTinderwatchBadgeFromServer();
+});
 updateTinderLikeFilterButton();
 renderTinderStats();
 updateSettingsDaysButtons();

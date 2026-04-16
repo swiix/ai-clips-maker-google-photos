@@ -252,6 +252,18 @@ class CacheClearAdvancedBody(BaseModel):
     other_files: bool = True
 
 
+class TinderReviewBody(BaseModel):
+    clip_key: str
+    decision: Optional[str] = None
+    downloaded: Optional[bool] = None
+    trim_mode: Optional[str] = None
+    source_filename: Optional[str] = None
+    folder: Optional[str] = None
+    video_url: Optional[str] = None
+    begin_sec: Optional[float] = None
+    finish_sec: Optional[float] = None
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     index_path = static_dir / "index.html"
@@ -602,6 +614,31 @@ def clear_video_cache_advanced(body: CacheClearAdvancedBody, settings: SettingsD
         "skipped_recent_files": skipped_recent,
         "skipped_type_files": skipped_type,
     }
+
+
+@app.get("/api/tinder/reviews")
+def tinder_reviews_list(conn: DbDep) -> list[dict[str, Any]]:
+    return dbmod.list_tinder_reviews(conn)
+
+
+@app.post("/api/tinder/reviews")
+def tinder_reviews_upsert(body: TinderReviewBody, conn: DbDep) -> dict[str, Any]:
+    clip_key = str(body.clip_key or "").strip()
+    if not clip_key:
+        raise HTTPException(400, "clip_key is required")
+    dbmod.upsert_tinder_review(
+        conn,
+        clip_key=clip_key,
+        decision=body.decision,
+        downloaded=body.downloaded,
+        trim_mode=body.trim_mode,
+        source_filename=body.source_filename,
+        folder=body.folder,
+        video_url=body.video_url,
+        begin_sec=body.begin_sec,
+        finish_sec=body.finish_sec,
+    )
+    return {"status": "ok", "clip_key": clip_key}
 
 
 _STATS_METHOD_LABELS_DE: dict[str, str] = {
