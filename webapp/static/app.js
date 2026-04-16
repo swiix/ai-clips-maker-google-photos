@@ -456,6 +456,19 @@ function formatPercent(v) {
   return `${Number(v).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
+function formatRelativeFromEpoch(epochSeconds) {
+  if (epochSeconds === null || epochSeconds === undefined || Number.isNaN(Number(epochSeconds))) return "";
+  const tsMs = Number(epochSeconds) * 1000;
+  const diffSec = Math.round((Date.now() - tsMs) / 1000);
+  const abs = Math.abs(diffSec);
+  const rtf = new Intl.RelativeTimeFormat("de-DE", { numeric: "auto" });
+  if (abs < 60) return rtf.format(-Math.round(diffSec), "second");
+  if (abs < 3600) return rtf.format(-Math.round(diffSec / 60), "minute");
+  if (abs < 86400) return rtf.format(-Math.round(diffSec / 3600), "hour");
+  if (abs < 2592000) return rtf.format(-Math.round(diffSec / 86400), "day");
+  return rtf.format(-Math.round(diffSec / 2592000), "month");
+}
+
 function trimMethodLabel(m) {
   const map = {
     silence_all: "Stille · alle Profile",
@@ -948,7 +961,10 @@ async function loadJobs() {
     const folderCell = `<div class="job-folder-cell">${playBtn}</div>${
       hasOutputDir ? `<div class="muted" style="font-size:0.72rem;margin-top:0.2rem">${escapeHtml(row.output_dir || "")}</div>` : ""
     }`;
-    tr.innerHTML = `<td>${folderCell}</td><td>${escapeHtml(formatSeconds(row.cut_input_seconds))}</td><td>${escapeHtml(formatSeconds(row.cut_saved_seconds))}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${row.id}</td><td title="${escapeHtml(
+    const relUpdated = formatRelativeFromEpoch(row.updated_at);
+    const durationCell = `<span title="${escapeHtml(relUpdated)}">${escapeHtml(formatSeconds(row.cut_input_seconds))}</span>`;
+    const savedCell = `<span title="${escapeHtml(relUpdated)}">${escapeHtml(formatSeconds(row.cut_saved_seconds))}</span>`;
+    tr.innerHTML = `<td>${folderCell}</td><td>${durationCell}</td><td>${savedCell}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${row.id}</td><td title="${escapeHtml(
       row.media_item_id || ""
     )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(
       row.error || ""
