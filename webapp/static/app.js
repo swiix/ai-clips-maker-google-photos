@@ -1618,10 +1618,12 @@ function detectTrimMode(folder, filename) {
 function flattenGalleryClips(entries) {
   const clips = [];
   for (const entry of entries || []) {
+    const sourceType = entry.folder === "legacy_outputs" ? "legacy" : "jobs";
     for (const clip of entry.clips || []) {
       if (!clip.video_url) continue;
       clips.push({
         key: `${entry.folder || "folder"}::${clip.index || 0}::${clip.video_url}`,
+        sourceType,
         jobId: Number((entry.source && entry.source.jobId) || null) || null,
         mediaItemId:
           (entry.source && (entry.source.mediaItemId || entry.source.media_item_id)) || null,
@@ -1840,12 +1842,18 @@ function updateTinderStatus() {
   if (!el) return;
   const total = state.tinderClips.length;
   const idx = total > 0 ? state.tinderIndex + 1 : 0;
+  let jobsClips = 0;
+  let legacyClips = 0;
+  for (const clip of state.tinderClips) {
+    if (clip.sourceType === "legacy") legacyClips += 1;
+    else jobsClips += 1;
+  }
   const likes = state.tinderLikes.size;
   let downloadedLikes = 0;
   for (const key of state.tinderLikes.keys()) {
     if (state.tinderDownloaded.get(key)?.downloaded) downloadedLikes += 1;
   }
-  el.textContent = `${idx}/${total} Clips · Likes: ${likes} · Downloads: ${downloadedLikes}/${likes}`;
+  el.textContent = `${idx}/${total} Clips · Jobs: ${jobsClips} · Legacy: ${legacyClips} · Likes: ${likes} · Downloads: ${downloadedLikes}/${likes}`;
 }
 
 function renderTinderCard() {
