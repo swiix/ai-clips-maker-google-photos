@@ -1657,6 +1657,7 @@ function trimModeLabelDe(mode) {
   if (key === "silence_conservative") return "Silence Conservative";
   if (key === "silence_balanced") return "Silence Balanced";
   if (key === "silence_aggressive") return "Silence Aggressive";
+  if (key) return String(mode);
   return "Unbekannt";
 }
 
@@ -1697,7 +1698,7 @@ function flattenGalleryClips(entries) {
         folder: entry.folder || "",
         sourceFilename: (entry.source && entry.source.filename) || "",
         trimMode:
-          (entry.source && entry.source.trimMode) ||
+          (entry.source && (entry.source.jobType || entry.source.trimMode)) ||
           detectTrimMode(entry.folder, (entry.source && entry.source.filename) || ""),
         index: clip.index,
         begin_sec: clip.begin_sec,

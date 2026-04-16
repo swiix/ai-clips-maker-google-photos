@@ -1175,6 +1175,7 @@ def _build_gallery_entries(
                     "creationTime": r["creation_time"],
                     "mediaItemId": r["media_item_id"],
                     "jobId": int(r["id"]),
+                    "jobType": str(r["job_type"] or ""),
                     "trimMode": _trim_mode_from_job(r["trim_method_label"], r["job_options"], r["job_type"]),
                 },
                 "clips": clips_out,
