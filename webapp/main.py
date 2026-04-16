@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import tempfile
@@ -86,6 +87,7 @@ _ensure_ffmpeg_on_path()
 _oauth_states: dict[str, float] = {}
 _scheduler: BackgroundScheduler | None = None
 _preflight_cache: dict[str, Any] = {"ts": 0.0, "result": None}
+_DURATION_TAG_RE = re.compile(r"_(\d+(?:d\d+)?)s_to_(\d+(?:d\d+)?)s_")
 
 
 @asynccontextmanager
@@ -711,8 +713,74 @@ def preflight(settings: SettingsDep) -> dict[str, Any]:
 
 
 @app.get("/api/jobs")
-def list_jobs(conn: DbDep) -> list[dict[str, Any]]:
-    return dbmod.list_jobs(conn)
+def list_jobs(conn: DbDep, settings: SettingsDep) -> list[dict[str, Any]]:
+    rows = dbmod.list_jobs(conn)
+    return [_enrich_job_cut_metrics(r, settings) for r in rows]
+
+
+def _parse_duration_token(tok: str) -> float | None:
+    try:
+        return float(tok.replace("d", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def _find_cut_metrics_from_filenames(row: dict[str, Any], settings: Settings) -> tuple[float, float] | None:
+    out_raw = str(row.get("output_dir") or "").strip()
+    if not out_raw:
+        return None
+    out_dir = Path(out_raw).expanduser()
+    if not out_dir.is_absolute():
+        out_dir = (Path.cwd() / out_dir).resolve()
+    if not out_dir.is_dir():
+        return None
+    short_id = str(row.get("media_item_id") or "")[:12]
+    mp4s = sorted(out_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if short_id:
+        preferred = [p for p in mp4s if short_id in p.name]
+        if preferred:
+            mp4s = preferred
+    for p in mp4s:
+        m = _DURATION_TAG_RE.search(p.name)
+        if not m:
+            continue
+        before = _parse_duration_token(m.group(1))
+        after = _parse_duration_token(m.group(2))
+        if before is None or after is None or before <= 0 or after < 0:
+            continue
+        return (before, after)
+    return None
+
+
+def _enrich_job_cut_metrics(row: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    data = dict(row)
+    before = data.get("cut_input_seconds")
+    after = data.get("cut_output_seconds")
+    source = "db"
+    if (before is None or after is None) and str(data.get("status") or "") == "done":
+        fallback = _find_cut_metrics_from_filenames(data, settings)
+        if fallback is not None:
+            before, after = fallback
+            source = "filename"
+    try:
+        b = float(before) if before is not None else None
+        a = float(after) if after is not None else None
+    except (TypeError, ValueError):
+        b = None
+        a = None
+    if b is not None and a is not None and b > 0:
+        saved = max(0.0, b - a)
+        percent = (saved / b) * 100.0
+        data["cut_input_seconds"] = b
+        data["cut_output_seconds"] = a
+        data["cut_saved_seconds"] = saved
+        data["cut_saved_percent"] = percent
+        data["cut_metrics_source"] = source
+    else:
+        data["cut_saved_seconds"] = None
+        data["cut_saved_percent"] = None
+        data["cut_metrics_source"] = None
+    return data
 
 
 @app.get("/api/jobs/{job_id}/latest-video")

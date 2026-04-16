@@ -8,6 +8,7 @@ import logging
 import json
 import os
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -29,6 +30,7 @@ _task_queue: queue.Queue[int | None] = queue.Queue()
 _worker_started = False
 _worker_lock = threading.Lock()
 logger = logging.getLogger(__name__)
+_DURATION_TAG_RE = re.compile(r"_(\d+(?:d\d+)?)s_to_(\d+(?:d\d+)?)s_")
 
 
 def enqueue_job_id(job_id: int) -> None:
@@ -357,6 +359,10 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
             except (TypeError, ValueError):
                 o_secs = 0.0
             try:
+                out_secs = float(str(result.get("output_video_seconds") or "0") or 0.0)
+            except (TypeError, ValueError):
+                out_secs = 0.0
+            try:
                 o_cost = float(str(result.get("estimated_cost_usd") or "0") or 0.0)
             except (TypeError, ValueError):
                 o_cost = 0.0
@@ -366,6 +372,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 outputs_created=1,
                 openai_input_seconds=o_secs if o_secs > 0 else None,
                 openai_cost_usd=o_cost if o_cost > 0 else None,
+                cut_input_seconds=o_secs if o_secs > 0 else None,
+                cut_output_seconds=out_secs if out_secs > 0 else None,
             )
         elif job_type == "silence_remove":
             from webapp.silence_remover import remove_silence_selected_profiles
@@ -408,6 +416,16 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 run_prefix,
                 selected_profiles,
             )
+            best_before: float | None = None
+            best_after: float | None = None
+            for item in rendered:
+                parsed = _parse_duration_from_name(item.get("output_path") if isinstance(item, dict) else getattr(item, "output_path", ""))
+                if parsed is None:
+                    continue
+                before, after = parsed
+                if best_after is None or after < best_after:
+                    best_before = before
+                    best_after = after
             dbmod.upsert_job(
                 conn,
                 media_item_id,
@@ -425,6 +443,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 outputs_created=len(rendered),
                 openai_input_seconds=None,
                 openai_cost_usd=None,
+                cut_input_seconds=best_before,
+                cut_output_seconds=best_after,
             )
         else:
             token = settings.pyannote_token or __import__("os").environ.get("HF_TOKEN", "")
@@ -492,6 +512,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                     outputs_created=n_clips,
                     openai_input_seconds=None,
                     openai_cost_usd=None,
+                    cut_input_seconds=None,
+                    cut_output_seconds=None,
                 )
     except Exception as exc:
         try:
@@ -549,6 +571,23 @@ def _is_valid_cached_av(path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def _parse_duration_from_name(path: str | Path) -> tuple[float, float] | None:
+    if path is None:
+        return None
+    name = Path(path).name
+    m = _DURATION_TAG_RE.search(name)
+    if not m:
+        return None
+    try:
+        before = float(m.group(1).replace("d", "."))
+        after = float(m.group(2).replace("d", "."))
+    except ValueError:
+        return None
+    if before <= 0 or after < 0:
+        return None
+    return before, after
 
 
 def _is_noise_reduction_enabled(options_raw: str | None) -> bool:

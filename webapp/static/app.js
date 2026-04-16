@@ -419,6 +419,16 @@ function formatProgress(value) {
   return `${p}%`;
 }
 
+function formatSeconds(v) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  return Number(v).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function formatPercent(v) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  return `${Number(v).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
 function trimMethodLabel(m) {
   const map = {
     silence_all: "Stille · alle Profile",
@@ -882,7 +892,7 @@ async function loadJobs() {
     }`;
     tr.innerHTML = `<td>${folderCell}</td><td>${row.id}</td><td title="${escapeHtml(
       row.media_item_id || ""
-    )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(
+    )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(formatSeconds(row.cut_saved_seconds))}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${escapeHtml(
       row.error || ""
     )}</td>`;
     tb.appendChild(tr);
@@ -905,6 +915,38 @@ async function loadJobs() {
       jobsStatus.textContent += ` · ${doneTransitions} fertig`;
     }
   }
+}
+
+async function loadCutsView() {
+  const status = $("#cuts-status");
+  const root = $("#cuts-list");
+  if (!root) return;
+  const r = await fetch("/api/jobs");
+  const rows = await r.json();
+  const done = rows
+    .filter((x) => x.status === "done" && Number(x.cut_saved_seconds || 0) > 0)
+    .sort((a, b) => Number(b.cut_saved_seconds || 0) - Number(a.cut_saved_seconds || 0));
+  root.innerHTML = "";
+  if (!done.length) {
+    root.innerHTML = `<div class="muted">Noch keine erkannten Schnitt-Metriken vorhanden.</div>`;
+    if (status) status.textContent = "Schnitt-Metriken pro Job (DB, sonst Dateiname-Fallback).";
+    return;
+  }
+  for (const row of done) {
+    const card = document.createElement("div");
+    card.className = "cut-card";
+    const source = row.cut_metrics_source === "filename" ? "Dateiname-Fallback" : "Datenbank";
+    card.innerHTML = `<div class="cut-card-title">${escapeHtml(row.filename || row.media_item_id || "")}</div>
+      <div class="cut-card-meta">Job #${row.id} · ${escapeHtml(row.job_type || "")} · Quelle: ${escapeHtml(source)}</div>
+      <div class="cut-card-grid">
+        <div><span class="muted">Vorher</span><strong>${formatSeconds(row.cut_input_seconds)} s</strong></div>
+        <div><span class="muted">Nachher</span><strong>${formatSeconds(row.cut_output_seconds)} s</strong></div>
+        <div><span class="muted">Eingespart</span><strong>${formatSeconds(row.cut_saved_seconds)} s</strong></div>
+        <div><span class="muted">Geschnitten</span><strong>${formatPercent(row.cut_saved_percent)}</strong></div>
+      </div>`;
+    root.appendChild(card);
+  }
+  if (status) status.textContent = `${done.length} Jobs mit erkannten Schnitt-Metriken.`;
 }
 
 $("#refresh-jobs").addEventListener("click", loadJobs);
@@ -1022,9 +1064,14 @@ document.querySelector('[data-tab="jobs"]').addEventListener("click", () => {
 document.querySelector('[data-tab="stats"]').addEventListener("click", () => {
   loadStats();
 });
+document.querySelector('[data-tab="cuts"]').addEventListener("click", () => {
+  loadCutsView();
+});
 
 const refreshStats = $("#refresh-stats");
 if (refreshStats) refreshStats.addEventListener("click", () => loadStats());
+const refreshCuts = $("#refresh-cuts");
+if (refreshCuts) refreshCuts.addEventListener("click", () => loadCutsView());
 
 authStatus();
 loadJobs();

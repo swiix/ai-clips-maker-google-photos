@@ -186,6 +186,7 @@ def trim_video_to_openai_speech(
         "transcript_json": str(raw_path),
         "segments_kept": str(len(clamped)),
         "input_audio_seconds": f"{total:.6f}",
+        "output_video_seconds": f"{after:.6f}",
         "billed_minutes": f"{billed_minutes:.6f}",
         "estimated_cost_usd": f"{cost_usd:.6f}",
     }

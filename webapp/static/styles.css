@@ -628,3 +628,44 @@ code {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
 }
+
+.cuts-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.cut-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cut-card-title {
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.cut-card-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.cut-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.55rem;
+}
+
+.cut-card-grid span {
+  display: block;
+  font-size: 0.76rem;
+}
+
+.cut-card-grid strong {
+  display: block;
+  margin-top: 0.12rem;
+  font-size: 0.95rem;
+}

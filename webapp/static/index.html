@@ -14,6 +14,7 @@
       <button type="button" data-tab="gallery" class="tab">Galerie</button>
       <button type="button" data-tab="jobs" class="tab">Jobs</button>
       <button type="button" data-tab="stats" class="tab">Statistik</button>
+      <button type="button" data-tab="cuts" class="tab">Schnitt-Analyse</button>
     </nav>
     <div class="auth">
       <span id="auth-label" class="muted">…</span>
@@ -75,7 +76,7 @@
       <p id="jobs-status" class="muted"></p>
       <table class="jobs">
         <thead>
-          <tr><th>Aktion</th><th>ID</th><th>Media</th><th>Typ</th><th>Profile</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Fehler</th></tr>
+          <tr><th>Aktion</th><th>ID</th><th>Media</th><th>Typ</th><th>Profile</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Ersparnis (s)</th><th>Schnitt (%)</th><th>Fehler</th></tr>
         </thead>
         <tbody id="jobs-body"></tbody>
       </table>
@@ -101,6 +102,14 @@
         <tbody id="stats-body"></tbody>
       </table>
       <div id="stats-totals" class="stats-totals muted"></div>
+    </section>
+
+    <section id="panel-cuts" class="panel">
+      <div class="toolbar">
+        <button type="button" id="refresh-cuts" class="btn">Aktualisieren</button>
+      </div>
+      <p id="cuts-status" class="muted">Schnitt-Metriken pro Job (DB, sonst Dateiname-Fallback).</p>
+      <div id="cuts-list" class="cuts-list"></div>
     </section>
   </main>
 

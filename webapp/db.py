@@ -66,6 +66,10 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN openai_input_seconds REAL")
     if "openai_cost_usd" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN openai_cost_usd REAL")
+    if "cut_input_seconds" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN cut_input_seconds REAL")
+    if "cut_output_seconds" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN cut_output_seconds REAL")
     conn.commit()
 
 
@@ -103,6 +107,8 @@ def create_or_requeue_job(
                     outputs_created = NULL,
                     openai_input_seconds = NULL,
                     openai_cost_usd = NULL,
+                    cut_input_seconds = NULL,
+                    cut_output_seconds = NULL,
                     status = 'queued', phase = 'queued', phase_message = 'In Warteschlange',
                     progress = 0.0, error = NULL, output_dir = NULL, updated_at = ?
                 WHERE id = ?
@@ -237,6 +243,8 @@ def set_job_run_metrics(
     outputs_created: int,
     openai_input_seconds: float | None = None,
     openai_cost_usd: float | None = None,
+    cut_input_seconds: float | None = None,
+    cut_output_seconds: float | None = None,
 ) -> None:
     now = time.time()
     with _lock:
@@ -246,10 +254,20 @@ def set_job_run_metrics(
                 outputs_created = ?,
                 openai_input_seconds = ?,
                 openai_cost_usd = ?,
+                cut_input_seconds = ?,
+                cut_output_seconds = ?,
                 updated_at = ?
             WHERE media_item_id = ?
             """,
-            (outputs_created, openai_input_seconds, openai_cost_usd, now, media_item_id),
+            (
+                outputs_created,
+                openai_input_seconds,
+                openai_cost_usd,
+                cut_input_seconds,
+                cut_output_seconds,
+                now,
+                media_item_id,
+            ),
         )
         conn.commit()
 

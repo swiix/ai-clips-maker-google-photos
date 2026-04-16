@@ -212,6 +212,7 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
         return {
             "video_path": str(tmp_path / "out" / "x.mp4"),
             "input_audio_seconds": "120.000000",
+            "output_video_seconds": "80.000000",
             "estimated_cost_usd": "0.012000",
         }
 
@@ -222,7 +223,7 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
 
     jobsmod._run_one_job(conn, settings, job_id)
     out = conn.execute(
-        "SELECT status, phase, job_type, outputs_created, openai_input_seconds, openai_cost_usd FROM jobs WHERE id = ?",
+        "SELECT status, phase, job_type, outputs_created, openai_input_seconds, openai_cost_usd, cut_input_seconds, cut_output_seconds FROM jobs WHERE id = ?",
         (job_id,),
     ).fetchone()
     conn.close()
@@ -232,6 +233,8 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
     assert int(out["outputs_created"] or 0) == 1
     assert abs(float(out["openai_input_seconds"] or 0) - 120.0) < 1e-6
     assert abs(float(out["openai_cost_usd"] or 0) - 0.012) < 1e-6
+    assert abs(float(out["cut_input_seconds"] or 0) - 120.0) < 1e-6
+    assert abs(float(out["cut_output_seconds"] or 0) - 80.0) < 1e-6
     assert float(captured.get("merge_gap_sec") or 0.0) == pytest.approx(0.8)
     assert float(captured.get("min_segment_sec") or 0.0) == pytest.approx(0.2)
 
@@ -354,5 +357,54 @@ def test_api_job_latest_video_endpoint(tmp_path: Path):
         assert r.status_code == 200
         data = r.json()
         assert data["video_url"].endswith("/demo_m_shortid123456_abc_speech_openai.mp4")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_api_jobs_enriches_cut_metrics_with_filename_fallback(tmp_path: Path):
+    out_dir = tmp_path / "outputs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # legacy name with decimal marker "d"
+    (out_dir / "demo_m_abc123456789_x_150d5s_to_81d3s_speech_openai.mp4").write_bytes(b"fake")
+
+    db_path = tmp_path / "app_jobs_metrics.db"
+    conn = dbmod.connect(db_path)
+    dbmod.init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            media_item_id, job_type, status, phase, phase_message, progress,
+            output_dir, created_at, updated_at
+        ) VALUES (?, ?, 'done', 'done', '', 1.0, ?, 0, 0)
+        """,
+        ("m_abc1234567890", "openai_speech_trim", str(out_dir)),
+    )
+    conn.commit()
+    conn.close()
+
+    def fake_db_dep():
+        c = dbmod.connect(db_path)
+        dbmod.init_db(c)
+        try:
+            yield c
+        finally:
+            c.close()
+
+    s = Settings(data_dir=tmp_path, output_dir=out_dir, cache_dir=tmp_path / "cache")
+    app.dependency_overrides.clear()
+    from webapp.main import _db_dep, _settings_dep
+
+    app.dependency_overrides[_db_dep] = fake_db_dep
+    app.dependency_overrides[_settings_dep] = lambda: s
+    try:
+        client = TestClient(app)
+        r = client.get("/api/jobs")
+        assert r.status_code == 200
+        rows = r.json()
+        assert rows
+        row = rows[0]
+        assert row["cut_metrics_source"] == "filename"
+        assert row["cut_saved_seconds"] == pytest.approx(69.2, abs=0.2)
+        assert row["cut_saved_percent"] == pytest.approx(45.98, abs=0.3)
     finally:
         app.dependency_overrides.clear()
