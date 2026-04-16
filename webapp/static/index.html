@@ -78,6 +78,8 @@
           <select id="jobs-sort" class="btn">
             <option value="updated_desc">Zuletzt aktualisiert (neu)</option>
             <option value="updated_asc">Zuletzt aktualisiert (alt)</option>
+            <option value="duration_desc">Dauer (s) ↓</option>
+            <option value="duration_asc">Dauer (s) ↑</option>
             <option value="saved_sec_desc">Ersparnis (s) ↓</option>
             <option value="saved_sec_asc">Ersparnis (s) ↑</option>
             <option value="saved_pct_desc">Schnitt (%) ↓</option>
@@ -94,7 +96,7 @@
       <p id="jobs-status" class="muted"></p>
       <table class="jobs">
         <thead>
-          <tr><th>Aktion</th><th>Ersparnis (s)</th><th>Schnitt (%)</th><th>ID</th><th>Media</th><th>Typ</th><th>Profile</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Fehler</th></tr>
+          <tr><th>Aktion</th><th>Dauer (s)</th><th>Ersparnis (s)</th><th>Schnitt (%)</th><th>ID</th><th>Media</th><th>Typ</th><th>Profile</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Fehler</th></tr>
         </thead>
         <tbody id="jobs-body"></tbody>
       </table>

@@ -872,6 +872,8 @@ async function loadJobs() {
 
   const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? Number.NEGATIVE_INFINITY : Number(v));
   rows.sort((a, b) => {
+    if (sortKey === "duration_desc") return num(b.cut_input_seconds) - num(a.cut_input_seconds);
+    if (sortKey === "duration_asc") return num(a.cut_input_seconds) - num(b.cut_input_seconds);
     if (sortKey === "saved_sec_desc") return num(b.cut_saved_seconds) - num(a.cut_saved_seconds);
     if (sortKey === "saved_sec_asc") return num(a.cut_saved_seconds) - num(b.cut_saved_seconds);
     if (sortKey === "saved_pct_desc") return num(b.cut_saved_percent) - num(a.cut_saved_percent);
@@ -917,7 +919,7 @@ async function loadJobs() {
     const folderCell = `<div class="job-folder-cell">${playBtn}</div>${
       hasOutputDir ? `<div class="muted" style="font-size:0.72rem;margin-top:0.2rem">${escapeHtml(row.output_dir || "")}</div>` : ""
     }`;
-    tr.innerHTML = `<td>${folderCell}</td><td>${escapeHtml(formatSeconds(row.cut_saved_seconds))}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${row.id}</td><td title="${escapeHtml(
+    tr.innerHTML = `<td>${folderCell}</td><td>${escapeHtml(formatSeconds(row.cut_input_seconds))}</td><td>${escapeHtml(formatSeconds(row.cut_saved_seconds))}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${row.id}</td><td title="${escapeHtml(
       row.media_item_id || ""
     )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(
       row.error || ""
