@@ -710,6 +710,29 @@ code {
   margin-bottom: 0.6rem;
 }
 
+.tinder-panel {
+  position: relative;
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at 18% 10%, rgba(255, 140, 170, 0.2), transparent 45%),
+    radial-gradient(circle at 80% 12%, rgba(255, 80, 130, 0.2), transparent 52%),
+    linear-gradient(180deg, #1a1022 0%, #110d18 48%, #0d0b13 100%);
+}
+
+.tinder-panel .tinder-toolbar .btn {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(4px);
+}
+
+.tinder-panel .tinder-toolbar .btn.primary {
+  border-color: rgba(255, 112, 150, 0.9);
+  background: linear-gradient(135deg, #ff4458, #ff5d8f 60%, #ff8a74);
+  color: #fff;
+}
+
 .tinder-layout {
   display: grid;
   grid-template-columns: minmax(340px, 1fr) minmax(260px, 360px);
@@ -718,84 +741,111 @@ code {
 }
 
 .tinder-stage {
-  background: radial-gradient(circle at top right, rgba(255, 92, 140, 0.24), rgba(55, 25, 80, 0.25));
-  border: 1px solid rgba(255, 99, 149, 0.35);
-  border-radius: 16px;
-  padding: 0.8rem;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  background:
+    radial-gradient(circle at top right, rgba(255, 117, 154, 0.26), rgba(52, 30, 78, 0.35)),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 146, 185, 0.42);
+  border-radius: 24px;
+  padding: 0.9rem;
+  box-shadow: 0 24px 65px rgba(0, 0, 0, 0.45);
 }
 
 .tinder-card {
   position: relative;
-  border-radius: 14px;
+  border-radius: 24px;
   overflow: hidden;
-  border: 1px solid rgba(255, 159, 193, 0.35);
-  background: #120f1b;
+  border: 1px solid rgba(255, 166, 198, 0.5);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(20, 20, 22, 0.4)),
+    #110f18;
   min-height: 360px;
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
 .tinder-chip {
   position: absolute;
   z-index: 2;
-  top: 0.65rem;
-  left: 0.65rem;
-  background: rgba(255, 62, 121, 0.88);
+  top: 0.8rem;
+  left: 0.8rem;
+  background: linear-gradient(120deg, rgba(255, 68, 88, 0.94), rgba(255, 94, 143, 0.94));
   color: #fff;
   border-radius: 999px;
-  padding: 0.15rem 0.55rem;
-  font-size: 0.76rem;
-  font-weight: 700;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  box-shadow: 0 6px 20px rgba(255, 70, 110, 0.45);
 }
 
 .tinder-video {
   width: 100%;
   aspect-ratio: 9 / 16;
-  object-fit: contain;
+  object-fit: cover;
   background: #000;
 }
 
 .tinder-meta {
-  padding: 0.6rem 0.7rem;
-  background: linear-gradient(180deg, rgba(20, 14, 32, 0.3), rgba(20, 14, 32, 0.95));
+  padding: 0.78rem 0.86rem;
+  background:
+    linear-gradient(180deg, rgba(18, 13, 29, 0.36), rgba(18, 13, 29, 0.98));
 }
 
 .tinder-title {
-  font-weight: 700;
+  font-weight: 800;
   margin-bottom: 0.2rem;
+  letter-spacing: 0.01em;
 }
 
 .tinder-actions {
   display: flex;
-  gap: 0.55rem;
-  margin-top: 0.75rem;
+  justify-content: center;
+  align-items: center;
+  gap: 1.1rem;
+  margin-top: 0.95rem;
 }
 
 .tinder-btn {
-  flex: 1;
+  width: 70px;
+  height: 70px;
+  border-radius: 999px;
+  padding: 0;
   border-width: 2px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.01em;
+  font-size: 1.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.tinder-btn:hover {
+  transform: translateY(-2px) scale(1.02);
 }
 
 .tinder-btn-dislike {
-  border-color: rgba(111, 194, 255, 0.65);
-  color: #b8e8ff;
-  background: rgba(44, 98, 132, 0.3);
+  border-color: rgba(255, 166, 199, 0.78);
+  color: #ff6d98;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 28px rgba(255, 115, 157, 0.27);
 }
 
 .tinder-btn-like {
-  border-color: rgba(255, 126, 170, 0.72);
-  color: #ffd2e7;
-  background: rgba(170, 55, 102, 0.35);
+  border-color: rgba(150, 255, 228, 0.72);
+  color: #22d2a0;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 28px rgba(79, 224, 180, 0.27);
 }
 
 .tinder-likes {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0.75rem;
-  background: rgba(23, 26, 33, 0.92);
+  border: 1px solid rgba(255, 162, 194, 0.28);
+  border-radius: 18px;
+  padding: 0.8rem;
+  background: linear-gradient(180deg, rgba(34, 21, 44, 0.9), rgba(19, 15, 29, 0.95));
   max-height: 74vh;
   overflow: auto;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.3);
 }
 
 .tinder-likes h3 {
@@ -815,11 +865,11 @@ code {
 }
 
 .tinder-like-item {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  border: 1px solid rgba(255, 165, 198, 0.2);
+  border-radius: 14px;
   padding: 0.5rem;
   margin-bottom: 0.45rem;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .tinder-like-actions {
