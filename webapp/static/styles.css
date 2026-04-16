@@ -798,11 +798,15 @@ code {
 }
 
 .tinder-video {
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(80vh - 132px);
+  flex: 0 0 auto;
+  display: block;
+  margin: 0 auto;
   object-fit: contain;
-  background: #000;
+  background: transparent;
 }
 
 .tinder-meta {
