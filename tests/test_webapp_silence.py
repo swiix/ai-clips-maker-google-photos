@@ -296,3 +296,48 @@ def test_api_stats_endpoint(tmp_path: Path, monkeypatch):
         assert row["openai_usage_credits_usd"] == pytest.approx(0.01, rel=0, abs=1e-5)
     finally:
         app.dependency_overrides.clear()
+
+
+def test_api_job_latest_video_endpoint(tmp_path: Path):
+    out_dir = tmp_path / "outputs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    vid = out_dir / "demo_m_shortid123456_abc_speech_openai.mp4"
+    vid.write_bytes(b"fake-mp4")
+
+    db_path = tmp_path / "app_jobs.db"
+    conn = dbmod.connect(db_path)
+    dbmod.init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            media_item_id, job_type, status, phase, phase_message, progress,
+            output_dir, created_at, updated_at
+        ) VALUES (?, ?, 'done', 'done', '', 1.0, ?, 0, 0)
+        """,
+        ("m_shortid1234567890", "openai_speech_trim", str(out_dir)),
+    )
+    conn.commit()
+    conn.close()
+
+    def fake_db_dep():
+        c = dbmod.connect(db_path)
+        dbmod.init_db(c)
+        try:
+            yield c
+        finally:
+            c.close()
+
+    s = Settings(data_dir=tmp_path, output_dir=out_dir, cache_dir=tmp_path / "cache")
+    app.dependency_overrides.clear()
+    from webapp.main import _db_dep, _settings_dep
+
+    app.dependency_overrides[_db_dep] = fake_db_dep
+    app.dependency_overrides[_settings_dep] = lambda: s
+    try:
+        client = TestClient(app)
+        r = client.get("/api/jobs/1/latest-video")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["video_url"].endswith("/demo_m_shortid123456_abc_speech_openai.mp4")
+    finally:
+        app.dependency_overrides.clear()

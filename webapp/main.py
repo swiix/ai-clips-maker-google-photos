@@ -690,6 +690,45 @@ def list_jobs(conn: DbDep) -> list[dict[str, Any]]:
     return dbmod.list_jobs(conn)
 
 
+@app.get("/api/jobs/{job_id}/latest-video")
+def job_latest_video(job_id: int, conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT id, media_item_id, status, output_dir FROM jobs WHERE id = ?",
+        (job_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Job not found")
+    if str(row["status"] or "") != "done":
+        raise HTTPException(409, "Job is not finished yet")
+    out_dir = Path(str(row["output_dir"] or "")).expanduser().resolve()
+    if not out_dir.is_dir():
+        raise HTTPException(404, "Output folder missing")
+
+    short_id = str(row["media_item_id"] or "")[:12]
+    candidates = sorted(
+        out_dir.rglob(f"*{short_id}*.mp4"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    ) if short_id else []
+    if not candidates:
+        candidates = sorted(out_dir.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise HTTPException(404, "No rendered video found for this job")
+    target = candidates[0].resolve()
+
+    base = settings.output_dir.resolve()
+    try:
+        rel = target.relative_to(base)
+    except ValueError as exc:
+        raise HTTPException(404, "Video is outside configured output dir") from exc
+    rel_url = str(rel).replace("\\", "/")
+    return {
+        "video_url": f"/api/gallery/file/{rel_url}",
+        "filename": target.name,
+        "folder": str(out_dir),
+    }
+
+
 @app.get("/api/stats")
 def api_job_stats(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
     raw = dbmod.get_trim_statistics(conn)

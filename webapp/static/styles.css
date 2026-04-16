@@ -509,6 +509,24 @@ video.preview:-webkit-full-screen {
   border-color: rgba(255, 142, 142, 0.6);
 }
 
+.job-folder-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.job-folder-btn,
+.job-play-btn {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.78rem;
+}
+
+.job-play-btn {
+  border-color: rgba(130, 239, 182, 0.7);
+  color: #9ff3cb;
+}
+
 code {
   font-size: 0.85em;
   color: var(--accent);

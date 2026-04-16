@@ -524,6 +524,23 @@ function renderTrimMethodBadge(optionsRaw) {
   }
 }
 
+async function openJobVideo(jobId) {
+  const jobsStatus = $("#jobs-status");
+  try {
+    const r = await fetch(`/api/jobs/${jobId}/latest-video`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || "Kein Video verfügbar");
+    }
+    const data = await r.json();
+    if (!data.video_url) throw new Error("Kein Video verfügbar");
+    window.open(data.video_url, "_blank", "noopener");
+    if (jobsStatus) jobsStatus.textContent = `Öffne Video: ${data.filename || "preview.mp4"}`;
+  } catch (err) {
+    if (jobsStatus) jobsStatus.textContent = `Play fehlgeschlagen: ${err.message || "Unbekannter Fehler"}`;
+  }
+}
+
 function renderProfileBadges(optionsRaw) {
   try {
     const parsed = JSON.parse(optionsRaw || "{}");
@@ -839,13 +856,32 @@ async function loadJobs() {
       profExtra ? `<div class="job-badges" style="margin-top:0.25rem">${profExtra}</div>` : ""
     }`;
     const statusBadge = renderStatusBadge(row.status);
+    const hasOutputDir = Boolean(row.output_dir);
+    const folderBtn = hasOutputDir
+      ? `<button type="button" class="btn job-folder-btn" data-folder-job-id="${row.id}" title="${escapeHtml(
+          row.output_dir || ""
+        )}">Ordner</button>`
+      : "";
+    const playBtn = row.status === "done"
+      ? `<button type="button" class="btn job-play-btn" data-play-job-id="${row.id}">▶ Play</button>`
+      : "";
+    const folderCell = `<div class="job-folder-cell">${folderBtn}${playBtn}</div>${
+      hasOutputDir ? `<div class="muted" style="font-size:0.72rem;margin-top:0.2rem">${escapeHtml(row.output_dir || "")}</div>` : ""
+    }`;
     tr.innerHTML = `<td>${row.id}</td><td title="${escapeHtml(
       row.media_item_id || ""
-    )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(row.output_dir || "")}</td><td>${escapeHtml(
+    )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${folderCell}</td><td>${escapeHtml(
       row.error || ""
     )}</td>`;
     tb.appendChild(tr);
   }
+
+  tb.querySelectorAll("button[data-play-job-id]").forEach((btn) => {
+    btn.addEventListener("click", () => openJobVideo(btn.dataset.playJobId));
+  });
+  tb.querySelectorAll("button[data-folder-job-id]").forEach((btn) => {
+    btn.addEventListener("click", () => openJobVideo(btn.dataset.folderJobId));
+  });
 
   if (jobsStatus) {
     const active = runningCount + queuedCount;
