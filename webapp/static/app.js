@@ -863,26 +863,61 @@ $("#run-selected").addEventListener("click", async () => {
     $("#media-status").textContent = "Keine startbaren Videos gefunden (noch nicht READY).";
     return;
   }
-  const r = await fetch("/api/jobs/silence-remove", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      items,
-      trim_method: trimMethod,
-      cut_merge_gap_sec: cutMergeGapSec,
-      cut_min_duration_sec: cutMinDurationSec,
-      noise_reduction: noiseReductionEnabled,
-      noise_reduction_mode: noiseReductionMode,
-    }),
-  });
-  const j = await r.json();
+  let queuedCount = 0;
+  let skippedCount = 0;
+  if (trimMethod === "all_methods_testing") {
+    const methods = [
+      "silence_conservative",
+      "silence_balanced",
+      "silence_aggressive",
+      "openai_speech",
+    ];
+    for (const method of methods) {
+      const taggedItems = items.map((it) => ({
+        ...it,
+        // Dedicated synthetic IDs allow 4 parallel jobs per source video.
+        id: `${method}__${it.id}`,
+      }));
+      const r = await fetch("/api/jobs/silence-remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: taggedItems,
+          trim_method: method,
+          cut_merge_gap_sec: cutMergeGapSec,
+          cut_min_duration_sec: cutMinDurationSec,
+          noise_reduction: noiseReductionEnabled,
+          noise_reduction_mode: noiseReductionMode,
+        }),
+      });
+      const j = await r.json();
+      queuedCount += Number((j.queued_job_ids || []).length || 0);
+      skippedCount += Number((j.skipped_media_ids || []).length || 0);
+    }
+  } else {
+    const r = await fetch("/api/jobs/silence-remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items,
+        trim_method: trimMethod,
+        cut_merge_gap_sec: cutMergeGapSec,
+        cut_min_duration_sec: cutMinDurationSec,
+        noise_reduction: noiseReductionEnabled,
+        noise_reduction_mode: noiseReductionMode,
+      }),
+    });
+    const j = await r.json();
+    queuedCount = Number((j.queued_job_ids || []).length || 0);
+    skippedCount = Number((j.skipped_media_ids || []).length || 0);
+  }
   const localSkipped = Math.max(0, sourceItems.length - items.length);
   const notReadyInfo = skippedNotReady > 0 ? ` · nicht READY: ${skippedNotReady}` : "";
   setTab("jobs");
   loadJobs();
   const jobsStatus = $("#jobs-status");
   if (jobsStatus) {
-    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise Reduction: ${noiseReductionEnabled ? `an (${noiseReductionMode})` : "aus"}): ${j.queued_job_ids.length} eingereiht, ${Math.max(j.skipped_media_ids.length, localSkipped)} übersprungen${notReadyInfo}`;
+    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise Reduction: ${noiseReductionEnabled ? `an (${noiseReductionMode})` : "aus"}): ${queuedCount} eingereiht, ${Math.max(skippedCount, localSkipped)} übersprungen${notReadyInfo}`;
   }
 });
 
