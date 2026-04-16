@@ -2142,6 +2142,8 @@ hydrateTinderStateFromServer().then(() => {
   renderTinderStats();
   refreshTinderwatchBadgeFromServer();
 });
+// Mirror "Clips neu laden" behavior on full page reload.
+loadTinderWatch(true);
 updateTinderLikeFilterButton();
 renderTinderStats();
 updateSettingsDaysButtons();
