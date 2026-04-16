@@ -1124,6 +1124,43 @@ def gallery(settings: SettingsDep, conn: DbDep) -> list[dict[str, Any]]:
                 "error": None,
             }
         )
+
+    # Final fallback: include any MP4 files in output root/subfolders that were not
+    # covered by manifests or done-job based discovery. This ensures old outputs are
+    # still visible in TinderWatch for review.
+    orphan_clips: list[dict[str, Any]] = []
+    all_mp4 = sorted(root.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for idx, target in enumerate(all_mp4, start=1):
+        try:
+            rel = target.resolve().relative_to(base)
+        except ValueError:
+            continue
+        rel_url = str(rel).replace("\\", "/")
+        if rel_url in seen_video_rels:
+            continue
+        seen_video_rels.add(rel_url)
+        orphan_clips.append(
+            {
+                "index": idx,
+                "begin_sec": 0,
+                "finish_sec": 0,
+                "video_url": f"/api/gallery/file/{rel_url}",
+                "transcript_url": None,
+            }
+        )
+    if orphan_clips:
+        entries.append(
+            {
+                "folder": "legacy_outputs",
+                "source": {
+                    "filename": "Legacy Output Videos",
+                    "creationTime": None,
+                    "mediaItemId": None,
+                },
+                "clips": orphan_clips,
+                "error": None,
+            }
+        )
     return entries
 
 
