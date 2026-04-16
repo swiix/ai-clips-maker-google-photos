@@ -167,6 +167,46 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
     assert opts["noise_reduction"] is True
 
 
+def test_api_requeues_done_silence_job(tmp_path: Path):
+    db_path = tmp_path / "app.db"
+    conn = dbmod.connect(db_path)
+    dbmod.init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            media_item_id, filename, base_url, status, phase, phase_message, progress,
+            job_type, job_options, created_at, updated_at
+        ) VALUES (?, ?, ?, 'done', 'done', 'old', 1.0, 'silence_remove', ?, 0, 0)
+        """,
+        ("m_done", "d.mp4", "https://x", '{"trim_method":"silence_balanced"}'),
+    )
+    conn.commit()
+    conn.close()
+
+    s = Settings(data_dir=tmp_path, output_dir=tmp_path / "outputs", cache_dir=tmp_path / "cache")
+    app.dependency_overrides = {}
+    app.dependency_overrides[__import__("webapp.main", fromlist=["_settings_dep"])._settings_dep] = lambda: s
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/jobs/silence-remove",
+        json={
+            "items": [{"id": "m_done", "baseUrl": "https://x", "filename": "d.mp4"}],
+            "trim_method": "silence_balanced",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert len(payload["queued_job_ids"]) == 1
+
+    c2 = dbmod.connect(db_path)
+    dbmod.init_db(c2)
+    row = c2.execute("SELECT status, phase FROM jobs WHERE media_item_id = 'm_done'").fetchone()
+    c2.close()
+    assert row["status"] == "queued"
+    assert row["phase"] == "queued"
+
+
 def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)

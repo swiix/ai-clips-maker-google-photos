@@ -86,7 +86,7 @@ def create_or_requeue_job(
     trim_method_label: str | None = None,
 ) -> tuple[int, bool]:
     """
-    Returns (job_id, enqueue_worker) — enqueue False if already queued/running/done.
+    Returns (job_id, enqueue_worker) — enqueue False only if already queued/running.
     """
     now = time.time()
     with _lock:
@@ -95,7 +95,7 @@ def create_or_requeue_job(
         ).fetchone()
         if row:
             st = row["status"]
-            if st in ("queued", "running", "done"):
+            if st in ("queued", "running"):
                 return int(row["id"]), False
             conn.execute(
                 """
