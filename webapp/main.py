@@ -522,15 +522,47 @@ _STATS_METHOD_LABELS_DE: dict[str, str] = {
 }
 
 
+def _extract_cut_tuning_from_body(body: EnqueueBody) -> tuple[float | None, float | None]:
+    cut_merge_gap_sec: float | None = None
+    cut_min_duration_sec: float | None = None
+    for candidate in (body.cut_merge_gap_sec, body.openai_merge_gap_sec):
+        if candidate is None:
+            continue
+        try:
+            val = float(candidate)
+            if val > 0:
+                cut_merge_gap_sec = val
+                break
+        except (TypeError, ValueError):
+            pass
+    for candidate in (body.cut_min_duration_sec, body.openai_min_segment_sec):
+        if candidate is None:
+            continue
+        try:
+            val = float(candidate)
+            if val > 0:
+                cut_min_duration_sec = val
+                break
+        except (TypeError, ValueError):
+            pass
+    return cut_merge_gap_sec, cut_min_duration_sec
+
+
 @app.post("/api/jobs")
 def enqueue_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
     queued = []
     skipped = []
     noise_reduction_enabled = bool(body.noise_reduction is not False)
-    options_json = json.dumps(
-        {"trim_method": "clip_pipeline_ai", "noise_reduction": noise_reduction_enabled},
-        ensure_ascii=True,
-    )
+    cut_merge_gap_sec, cut_min_duration_sec = _extract_cut_tuning_from_body(body)
+    options: dict[str, Any] = {
+        "trim_method": "clip_pipeline_ai",
+        "noise_reduction": noise_reduction_enabled,
+    }
+    if cut_merge_gap_sec is not None:
+        options["cut_merge_gap_sec"] = cut_merge_gap_sec
+    if cut_min_duration_sec is not None:
+        options["cut_min_duration_sec"] = cut_min_duration_sec
+    options_json = json.dumps(options, ensure_ascii=True)
     for it in body.items:
         if not it.id or not it.baseUrl:
             skipped.append(it.id or "<missing-id>")
@@ -566,28 +598,7 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
         "silence_aggressive",
     }
     noise_reduction_enabled = bool(body.noise_reduction is not False)
-    cut_merge_gap_sec: float | None = None
-    cut_min_duration_sec: float | None = None
-    for candidate in (body.cut_merge_gap_sec, body.openai_merge_gap_sec):
-        if candidate is None:
-            continue
-        try:
-            val = float(candidate)
-            if val > 0:
-                cut_merge_gap_sec = val
-                break
-        except (TypeError, ValueError):
-            pass
-    for candidate in (body.cut_min_duration_sec, body.openai_min_segment_sec):
-        if candidate is None:
-            continue
-        try:
-            val = float(candidate)
-            if val > 0:
-                cut_min_duration_sec = val
-                break
-        except (TypeError, ValueError):
-            pass
+    cut_merge_gap_sec, cut_min_duration_sec = _extract_cut_tuning_from_body(body)
 
     def _dump(opts: dict[str, Any]) -> str:
         payload = dict(opts)

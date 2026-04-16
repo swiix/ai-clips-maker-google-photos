@@ -102,6 +102,38 @@ def test_api_enqueue_silence_remove_job(tmp_path: Path, monkeypatch):
     assert "silence_balanced" in str(row["job_options"] or "")
 
 
+def test_api_enqueue_clip_pipeline_persists_cut_controls(tmp_path: Path):
+    db_path = tmp_path / "app.db"
+    conn = dbmod.connect(db_path)
+    dbmod.init_db(conn)
+    conn.close()
+
+    s = Settings(data_dir=tmp_path, output_dir=tmp_path / "outputs", cache_dir=tmp_path / "cache")
+    app.dependency_overrides = {}
+    app.dependency_overrides[__import__("webapp.main", fromlist=["_settings_dep"])._settings_dep] = lambda: s
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/jobs",
+        json={
+            "items": [{"id": "m_pipe", "baseUrl": "https://x", "filename": "p.mp4"}],
+            "cut_merge_gap_sec": 0.9,
+            "cut_min_duration_sec": 0.3,
+            "noise_reduction": True,
+        },
+    )
+    assert resp.status_code == 200
+    c2 = dbmod.connect(db_path)
+    dbmod.init_db(c2)
+    row = c2.execute("SELECT job_type, job_options FROM jobs WHERE media_item_id = 'm_pipe'").fetchone()
+    c2.close()
+    assert row["job_type"] == "clip_pipeline"
+    opts = json.loads(str(row["job_options"] or "{}"))
+    assert opts["cut_merge_gap_sec"] == pytest.approx(0.9)
+    assert opts["cut_min_duration_sec"] == pytest.approx(0.3)
+    assert opts["noise_reduction"] is True
+
+
 def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)
