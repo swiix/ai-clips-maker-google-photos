@@ -1927,9 +1927,9 @@ function exportTinderLikes() {
   URL.revokeObjectURL(url);
 }
 
-async function loadTinderWatch() {
+async function loadTinderWatch(forceFresh = false) {
   try {
-    const r = await fetch("/api/gallery?include_orphans=1");
+    const r = await fetch(`/api/gallery?include_orphans=1&use_cache=${forceFresh ? 0 : 1}`);
     const data = await r.json();
     state.tinderClips = flattenGalleryClips(data);
     if (state.tinderIndex >= state.tinderClips.length) state.tinderIndex = 0;
@@ -1969,7 +1969,7 @@ const refreshCuts = $("#refresh-cuts");
 if (refreshCuts) refreshCuts.addEventListener("click", () => loadCutsView());
 
 const tinderRefresh = $("#tinder-refresh");
-if (tinderRefresh) tinderRefresh.addEventListener("click", () => loadTinderWatch());
+if (tinderRefresh) tinderRefresh.addEventListener("click", () => loadTinderWatch(true));
 const tinderLikeBtn = $("#tinder-like");
 if (tinderLikeBtn) tinderLikeBtn.addEventListener("click", () => tinderLike());
 const tinderDislikeBtn = $("#tinder-dislike");
