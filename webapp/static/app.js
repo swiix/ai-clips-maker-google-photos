@@ -14,6 +14,7 @@ const state = {
   tinderIndex: 0,
   tinderLikes: new Map(),
   tinderDownloaded: new Map(),
+  tinderLikeFilter: "all",
 };
 const videoRetryCountById = new Map();
 const STORAGE_KEYS = {
@@ -1318,7 +1319,14 @@ function triggerClipDownload(clip) {
 function renderTinderLikesList() {
   const root = $("#tinder-likes-list");
   if (!root) return;
-  const likes = Array.from(state.tinderLikes.values()).sort((a, b) => String(b.liked_at || "").localeCompare(String(a.liked_at || "")));
+  const likes = Array.from(state.tinderLikes.values())
+    .filter((like) => {
+      const downloaded = Boolean(state.tinderDownloaded.get(like.key)?.downloaded);
+      if (state.tinderLikeFilter === "downloaded") return downloaded;
+      if (state.tinderLikeFilter === "not_downloaded") return !downloaded;
+      return true;
+    })
+    .sort((a, b) => String(b.liked_at || "").localeCompare(String(a.liked_at || "")));
   if (!likes.length) {
     root.innerHTML = `<p class="muted">Noch keine Likes.</p>`;
     return;
@@ -1346,6 +1354,30 @@ function renderTinderLikesList() {
       updateTinderStatus();
     });
   });
+}
+
+function updateTinderLikeFilterButton() {
+  const btn = $("#tinder-like-filter-toggle");
+  if (!btn) return;
+  if (state.tinderLikeFilter === "downloaded") {
+    btn.textContent = "Filter: Downloaded";
+  } else if (state.tinderLikeFilter === "not_downloaded") {
+    btn.textContent = "Filter: Offen";
+  } else {
+    btn.textContent = "Filter: Alle";
+  }
+}
+
+function cycleTinderLikeFilter() {
+  if (state.tinderLikeFilter === "all") {
+    state.tinderLikeFilter = "downloaded";
+  } else if (state.tinderLikeFilter === "downloaded") {
+    state.tinderLikeFilter = "not_downloaded";
+  } else {
+    state.tinderLikeFilter = "all";
+  }
+  updateTinderLikeFilterButton();
+  renderTinderLikesList();
 }
 
 function updateTinderStatus() {
@@ -1481,6 +1513,8 @@ const tinderDownloadAllBtn = $("#tinder-download-all");
 if (tinderDownloadAllBtn) tinderDownloadAllBtn.addEventListener("click", () => downloadAllLikedClips());
 const tinderExportLikesBtn = $("#tinder-export-likes");
 if (tinderExportLikesBtn) tinderExportLikesBtn.addEventListener("click", () => exportTinderLikes());
+const tinderLikeFilterToggleBtn = $("#tinder-like-filter-toggle");
+if (tinderLikeFilterToggleBtn) tinderLikeFilterToggleBtn.addEventListener("click", () => cycleTinderLikeFilter());
 
 document.addEventListener("keydown", (ev) => {
   if (!isTabActive("tinderwatch")) return;
@@ -1501,3 +1535,4 @@ startCachePolling();
 restoreCutTuningFromStorage();
 updateOpenAiTuningVisibility();
 loadTinderStateFromStorage();
+updateTinderLikeFilterButton();

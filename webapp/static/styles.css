@@ -802,6 +802,18 @@ code {
   margin: 0 0 0.55rem;
 }
 
+.tinder-likes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  margin-bottom: 0.55rem;
+}
+
+.tinder-likes-head h3 {
+  margin: 0;
+}
+
 .tinder-like-item {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
