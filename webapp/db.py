@@ -46,6 +46,8 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS tinder_reviews (
             clip_key TEXT PRIMARY KEY,
+            job_id INTEGER,
+            media_item_id TEXT,
             decision TEXT,
             downloaded INTEGER NOT NULL DEFAULT 0,
             trim_mode TEXT,
@@ -59,6 +61,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+        CREATE INDEX IF NOT EXISTS idx_tinder_reviews_job_id ON tinder_reviews(job_id);
+        CREATE INDEX IF NOT EXISTS idx_tinder_reviews_media_item_id ON tinder_reviews(media_item_id);
         CREATE INDEX IF NOT EXISTS idx_tinder_reviews_updated_at ON tinder_reviews(updated_at);
         """
     )
@@ -85,6 +89,11 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN cut_input_seconds REAL")
     if "cut_output_seconds" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN cut_output_seconds REAL")
+    tinder_cols = {r[1] for r in conn.execute("PRAGMA table_info(tinder_reviews)").fetchall()}
+    if "job_id" not in tinder_cols:
+        conn.execute("ALTER TABLE tinder_reviews ADD COLUMN job_id INTEGER")
+    if "media_item_id" not in tinder_cols:
+        conn.execute("ALTER TABLE tinder_reviews ADD COLUMN media_item_id TEXT")
     conn.commit()
 
 
@@ -383,6 +392,8 @@ def upsert_tinder_review(
     conn: sqlite3.Connection,
     *,
     clip_key: str,
+    job_id: int | None = None,
+    media_item_id: str | None = None,
     decision: str | None = None,
     downloaded: bool | None = None,
     trim_mode: str | None = None,
@@ -410,6 +421,8 @@ def upsert_tinder_review(
             conn.execute(
                 """
                 UPDATE tinder_reviews SET
+                    job_id = COALESCE(?, job_id),
+                    media_item_id = COALESCE(?, media_item_id),
                     decision = COALESCE(?, decision),
                     downloaded = COALESCE(?, downloaded),
                     trim_mode = COALESCE(?, trim_mode),
@@ -422,6 +435,8 @@ def upsert_tinder_review(
                 WHERE clip_key = ?
                 """,
                 (
+                    job_id,
+                    media_item_id,
                     decision_norm,
                     downloaded_norm,
                     trim_mode,
@@ -438,12 +453,14 @@ def upsert_tinder_review(
             conn.execute(
                 """
                 INSERT INTO tinder_reviews (
-                    clip_key, decision, downloaded, trim_mode, source_filename, folder, video_url,
+                    clip_key, job_id, media_item_id, decision, downloaded, trim_mode, source_filename, folder, video_url,
                     begin_sec, finish_sec, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     clip_key,
+                    job_id,
+                    media_item_id,
                     decision_norm,
                     downloaded_norm if downloaded_norm is not None else 0,
                     trim_mode,
@@ -463,7 +480,7 @@ def list_tinder_reviews(conn: sqlite3.Connection, limit: int = 5000) -> list[dic
     with _lock:
         rows = conn.execute(
             """
-            SELECT clip_key, decision, downloaded, trim_mode, source_filename, folder, video_url,
+            SELECT clip_key, job_id, media_item_id, decision, downloaded, trim_mode, source_filename, folder, video_url,
                    begin_sec, finish_sec, created_at, updated_at
             FROM tinder_reviews
             ORDER BY updated_at DESC

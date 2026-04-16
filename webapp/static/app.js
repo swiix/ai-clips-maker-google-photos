@@ -1498,6 +1498,8 @@ async function upsertTinderReviewOnServer(clip, patch = {}) {
   if (!clip || !clip.key) return;
   const payload = {
     clip_key: clip.key,
+    job_id: Number.isInteger(Number(clip.jobId)) ? Number(clip.jobId) : null,
+    media_item_id: clip.mediaItemId || null,
     trim_mode: clip.trimMode || "unknown",
     source_filename: clip.sourceFilename || "",
     folder: clip.folder || "",
@@ -1521,6 +1523,8 @@ async function syncLocalTinderStateToServer(serverRows) {
     if (known.has(key)) continue;
     const clip = {
       key,
+      jobId: review.jobId || null,
+      mediaItemId: review.mediaItemId || null,
       trimMode: review.trimMode || "unknown",
       sourceFilename: review.sourceFilename || "",
       folder: review.folder || "",
@@ -1535,6 +1539,8 @@ async function syncLocalTinderStateToServer(serverRows) {
     if (known.has(key) || state.tinderDecisions.has(key)) continue;
     const clip = {
       key,
+      jobId: like.jobId || null,
+      mediaItemId: like.mediaItemId || null,
       trimMode: like.trimMode || "unknown",
       sourceFilename: like.sourceFilename || "",
       folder: like.folder || "",
@@ -1556,6 +1562,8 @@ function applyServerTinderReviews(rows) {
     if (decision === "like") {
       state.tinderLikes.set(key, {
         key,
+        jobId: row.job_id || null,
+        mediaItemId: row.media_item_id || null,
         folder: row.folder || "",
         sourceFilename: row.source_filename || "",
         index: 0,
@@ -1569,6 +1577,8 @@ function applyServerTinderReviews(rows) {
       state.tinderDecisions.set(key, {
         key,
         decision,
+        jobId: row.job_id || null,
+        mediaItemId: row.media_item_id || null,
         trimMode: row.trim_mode || "unknown",
         sourceFilename: row.source_filename || "",
         folder: row.folder || "",
@@ -1611,6 +1621,9 @@ function flattenGalleryClips(entries) {
       if (!clip.video_url) continue;
       clips.push({
         key: `${entry.folder || "folder"}::${clip.index || 0}::${clip.video_url}`,
+        jobId: Number((entry.source && entry.source.jobId) || null) || null,
+        mediaItemId:
+          (entry.source && (entry.source.mediaItemId || entry.source.media_item_id)) || null,
         folder: entry.folder || "",
         sourceFilename: (entry.source && entry.source.filename) || "",
         trimMode: detectTrimMode(entry.folder, (entry.source && entry.source.filename) || ""),
@@ -1634,6 +1647,8 @@ function markTinderLiked(clip) {
   if (!clip) return;
   state.tinderLikes.set(clip.key, {
     key: clip.key,
+    jobId: clip.jobId || null,
+    mediaItemId: clip.mediaItemId || null,
     folder: clip.folder,
     sourceFilename: clip.sourceFilename,
     index: clip.index,
@@ -1650,6 +1665,8 @@ function markTinderDecision(clip, decision) {
   if (!clip || (decision !== "like" && decision !== "dislike")) return;
   state.tinderDecisions.set(clip.key, {
     key: clip.key,
+    jobId: clip.jobId || null,
+    mediaItemId: clip.mediaItemId || null,
     decision,
     trimMode: clip.trimMode || "unknown",
     sourceFilename: clip.sourceFilename || "",

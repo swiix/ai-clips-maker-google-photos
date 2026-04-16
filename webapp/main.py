@@ -254,6 +254,8 @@ class CacheClearAdvancedBody(BaseModel):
 
 class TinderReviewBody(BaseModel):
     clip_key: str
+    job_id: Optional[int] = None
+    media_item_id: Optional[str] = None
     decision: Optional[str] = None
     downloaded: Optional[bool] = None
     trim_mode: Optional[str] = None
@@ -629,6 +631,8 @@ def tinder_reviews_upsert(body: TinderReviewBody, conn: DbDep) -> dict[str, Any]
     dbmod.upsert_tinder_review(
         conn,
         clip_key=clip_key,
+        job_id=body.job_id,
+        media_item_id=body.media_item_id,
         decision=body.decision,
         downloaded=body.downloaded,
         trim_mode=body.trim_mode,
@@ -1156,6 +1160,7 @@ def gallery(settings: SettingsDep, conn: DbDep) -> list[dict[str, Any]]:
                     "filename": r["filename"],
                     "creationTime": r["creation_time"],
                     "mediaItemId": r["media_item_id"],
+                    "jobId": int(r["id"]),
                 },
                 "clips": clips_out,
                 "error": None,
