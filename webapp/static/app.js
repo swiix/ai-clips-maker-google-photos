@@ -62,6 +62,32 @@ function saveJsonStorage(key, data) {
   } catch (_) {}
 }
 
+function setTinderwatchBadge(count) {
+  const badge = $("#tinderwatch-unseen-badge");
+  if (!badge) return;
+  const n = Math.max(0, Number(count) || 0);
+  badge.textContent = String(n);
+  badge.classList.toggle("hidden", n <= 0);
+}
+
+function computeUnseenFromClips(clips) {
+  let unseen = 0;
+  for (const clip of clips || []) {
+    if (!state.tinderDecisions.get(clip.key)) unseen += 1;
+  }
+  return unseen;
+}
+
+async function refreshTinderwatchBadgeFromServer() {
+  try {
+    const r = await fetch("/api/gallery");
+    if (!r.ok) return;
+    const data = await r.json();
+    const clips = flattenGalleryClips(data);
+    setTinderwatchBadge(computeUnseenFromClips(clips));
+  } catch (_) {}
+}
+
 function restoreCutTuningFromStorage() {
   const gapInput = $("#openai-merge-gap-sec");
   const minInput = $("#openai-min-segment-sec");
@@ -1202,6 +1228,7 @@ async function loadJobs() {
       jobsStatus.textContent += ` · ${failedTransitions} neuer Fehler`;
     } else if (doneTransitions > 0) {
       jobsStatus.textContent += ` · ${doneTransitions} fertig`;
+      refreshTinderwatchBadgeFromServer();
     }
   }
 }
@@ -1631,6 +1658,7 @@ function renderTinderCard() {
   updateTinderStatus();
   renderTinderLikesList();
   renderTinderStats();
+  setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
 }
 
 function tinderNext() {
@@ -1696,6 +1724,7 @@ async function loadTinderWatch() {
     const data = await r.json();
     state.tinderClips = flattenGalleryClips(data);
     if (state.tinderIndex >= state.tinderClips.length) state.tinderIndex = 0;
+    setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
     renderTinderCard();
   } catch (_) {
     const root = $("#tinder-card");
@@ -1775,3 +1804,4 @@ loadTinderStateFromStorage();
 updateTinderLikeFilterButton();
 renderTinderStats();
 updateSettingsDaysButtons();
+refreshTinderwatchBadgeFromServer();
