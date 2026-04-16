@@ -768,6 +768,8 @@ code {
 
 .tinder-card {
   position: relative;
+  display: flex;
+  flex-direction: column;
   border-radius: 24px;
   overflow: hidden;
   border: 1px solid rgba(255, 166, 198, 0.5);
@@ -775,6 +777,7 @@ code {
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(20, 20, 22, 0.4)),
     #110f18;
   min-height: 360px;
+  max-height: 80vh;
   box-shadow:
     0 16px 34px rgba(0, 0, 0, 0.52),
     inset 0 1px 0 rgba(255, 255, 255, 0.09);
@@ -796,7 +799,8 @@ code {
 
 .tinder-video {
   width: 100%;
-  aspect-ratio: 9 / 16;
+  flex: 1 1 auto;
+  min-height: 0;
   object-fit: cover;
   background: #000;
 }
