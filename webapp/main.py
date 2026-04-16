@@ -1073,12 +1073,17 @@ def _build_gallery_entries(
     conn,
     *,
     include_orphans: bool,
+    max_clips: int | None = None,
 ) -> list[dict[str, Any]]:
     root = settings.output_dir
     if not root.is_dir():
         return []
     entries: list[dict[str, Any]] = []
     seen_video_rels: set[str] = set()
+    total_clips = 0
+
+    def _reached_limit() -> bool:
+        return max_clips is not None and total_clips >= max_clips
     # Build gallery primarily from jobs table as source of truth.
     done_rows = conn.execute(
         """
@@ -1090,6 +1095,8 @@ def _build_gallery_entries(
     ).fetchall()
     base = settings.output_dir.resolve()
     for r in done_rows:
+        if _reached_limit():
+            break
         out_dir = Path(str(r["output_dir"] or "")).expanduser()
         if not out_dir.is_absolute():
             out_dir = (Path.cwd() / out_dir).resolve()
@@ -1105,6 +1112,8 @@ def _build_gallery_entries(
                 candidates = preferred
         clips_out: list[dict[str, Any]] = []
         for idx, target in enumerate(candidates, start=1):
+            if _reached_limit():
+                break
             try:
                 rel = target.resolve().relative_to(base)
             except ValueError:
@@ -1122,6 +1131,7 @@ def _build_gallery_entries(
                     "transcript_url": None,
                 }
             )
+            total_clips += 1
         if not clips_out:
             continue
         entries.append(
@@ -1143,6 +1153,8 @@ def _build_gallery_entries(
         orphan_clips: list[dict[str, Any]] = []
         all_mp4 = sorted(root.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
         for idx, target in enumerate(all_mp4, start=1):
+            if _reached_limit():
+                break
             try:
                 rel = target.resolve().relative_to(base)
             except ValueError:
@@ -1160,6 +1172,7 @@ def _build_gallery_entries(
                     "transcript_url": None,
                 }
             )
+            total_clips += 1
         if orphan_clips:
             entries.append(
                 {
@@ -1182,14 +1195,21 @@ def gallery(
     conn: DbDep,
     include_orphans: bool = Query(True),
     use_cache: bool = Query(True),
+    max_clips: int = Query(0, ge=0, le=2000),
 ) -> list[dict[str, Any]]:
-    cache_key = "with_orphans" if include_orphans else "without_orphans"
+    max_clips_norm = int(max_clips) if int(max_clips) > 0 else None
+    cache_key = f"{'with_orphans' if include_orphans else 'without_orphans'}:max={max_clips_norm or 0}"
     now = time.time()
     if use_cache:
         cached = _gallery_cache.get(cache_key)
         if cached and (now - float(cached.get("ts", 0.0))) < _GALLERY_CACHE_TTL_SEC:
             return cached["entries"]
-    entries = _build_gallery_entries(settings, conn, include_orphans=include_orphans)
+    entries = _build_gallery_entries(
+        settings,
+        conn,
+        include_orphans=include_orphans,
+        max_clips=max_clips_norm,
+    )
     _gallery_cache[cache_key] = {"ts": now, "entries": entries}
     return entries
 

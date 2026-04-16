@@ -1956,12 +1956,35 @@ function exportTinderLikes() {
 
 async function loadTinderWatch(forceFresh = false) {
   try {
-    const r = await fetch(`/api/gallery?include_orphans=1&use_cache=${forceFresh ? 0 : 1}`);
-    const data = await r.json();
-    state.tinderClips = flattenGalleryClips(data);
+    // Fast first paint: load a small clip window first.
+    const quickUrl = `/api/gallery?include_orphans=1&use_cache=${forceFresh ? 0 : 1}&max_clips=20`;
+    const quickResponse = await fetch(quickUrl);
+    const quickData = await quickResponse.json();
+    state.tinderClips = flattenGalleryClips(quickData);
     if (state.tinderIndex >= state.tinderClips.length) state.tinderIndex = 0;
     setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
     renderTinderCard();
+
+    // Then hydrate full list in background without blocking first video.
+    const fullUrl = `/api/gallery?include_orphans=1&use_cache=${forceFresh ? 0 : 1}`;
+    fetch(fullUrl)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((fullData) => {
+        const current = getCurrentTinderClip();
+        const currentKey = current?.key || null;
+        const allClips = flattenGalleryClips(fullData);
+        if (!allClips.length) return;
+        state.tinderClips = allClips;
+        if (currentKey) {
+          const idx = state.tinderClips.findIndex((c) => c.key === currentKey);
+          state.tinderIndex = idx >= 0 ? idx : 0;
+        } else if (state.tinderIndex >= state.tinderClips.length) {
+          state.tinderIndex = 0;
+        }
+        setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
+        updateTinderStatus();
+      })
+      .catch(() => {});
   } catch (_) {
     const root = $("#tinder-card");
     if (root) root.innerHTML = `<div class="tinder-empty">Fehler beim Laden der Clips.</div>`;
