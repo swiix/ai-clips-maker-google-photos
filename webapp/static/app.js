@@ -109,14 +109,31 @@ function restoreCutTuningFromStorage() {
 }
 
 function persistCutTuningToStorage(gapSec, minDurationSec) {
+  const normalizePositiveNumber = (value) => {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim().replace(",", ".");
+    if (!normalized) return null;
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return parsed;
+  };
   try {
-    if (Number.isFinite(gapSec) && gapSec > 0) {
-      window.localStorage.setItem(STORAGE_KEYS.cutMergeGapSec, String(gapSec));
+    const safeGap = normalizePositiveNumber(gapSec);
+    if (safeGap !== null) {
+      window.localStorage.setItem(STORAGE_KEYS.cutMergeGapSec, String(safeGap));
     }
-    if (Number.isFinite(minDurationSec) && minDurationSec > 0) {
-      window.localStorage.setItem(STORAGE_KEYS.cutMinDurationSec, String(minDurationSec));
+    const safeMin = normalizePositiveNumber(minDurationSec);
+    if (safeMin !== null) {
+      window.localStorage.setItem(STORAGE_KEYS.cutMinDurationSec, String(safeMin));
     }
   } catch (_) {}
+}
+
+function parsePositiveTuningValue(value, fallback) {
+  const normalized = String(value ?? "").trim().replace(",", ".");
+  const parsed = Number(normalized);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return fallback;
 }
 
 function persistNoiseModeToStorage(mode) {
@@ -998,6 +1015,19 @@ $("#prev-page").addEventListener("click", () => {
 
 $("#filter-input").addEventListener("input", () => renderGrid());
 $("#trim-method").addEventListener("change", () => updateOpenAiTuningVisibility());
+const mergeGapInput = $("#openai-merge-gap-sec");
+const minDurationInput = $("#openai-min-segment-sec");
+const persistCurrentCutTuning = () => {
+  persistCutTuningToStorage(mergeGapInput?.value, minDurationInput?.value);
+};
+if (mergeGapInput) {
+  mergeGapInput.addEventListener("change", persistCurrentCutTuning);
+  mergeGapInput.addEventListener("blur", persistCurrentCutTuning);
+}
+if (minDurationInput) {
+  minDurationInput.addEventListener("change", persistCurrentCutTuning);
+  minDurationInput.addEventListener("blur", persistCurrentCutTuning);
+}
 
 $("#select-all").addEventListener("click", () => {
   for (const it of visibleItems()) {
@@ -1014,8 +1044,8 @@ $("#clear-sel").addEventListener("click", () => {
 $("#run-selected").addEventListener("click", async () => {
   $("#media-status").textContent = "Starte Verarbeitung...";
   const trimMethod = ($("#trim-method")?.value || "silence_balanced").toLowerCase();
-  const cutMergeGapSec = Number($("#openai-merge-gap-sec")?.value || 0.35);
-  const cutMinDurationSec = Number($("#openai-min-segment-sec")?.value || 0.04);
+  const cutMergeGapSec = parsePositiveTuningValue($("#openai-merge-gap-sec")?.value, 0.35);
+  const cutMinDurationSec = parsePositiveTuningValue($("#openai-min-segment-sec")?.value, 0.04);
   const noiseReductionEnabled = Boolean($("#noise-reduction-enabled")?.checked);
   const noiseReductionMode = ($("#noise-reduction-mode")?.value || "auto").toLowerCase();
   persistCutTuningToStorage(cutMergeGapSec, cutMinDurationSec);
