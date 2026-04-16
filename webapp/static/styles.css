@@ -817,6 +817,12 @@ code {
   letter-spacing: 0.01em;
 }
 
+.tinder-player-state {
+  color: #f5b7ce;
+  font-size: 0.8rem;
+  margin-bottom: 0.22rem;
+}
+
 .tinder-actions {
   display: flex;
   justify-content: center;

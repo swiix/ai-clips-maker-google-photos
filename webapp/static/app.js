@@ -1856,6 +1856,23 @@ function updateTinderStatus() {
   el.textContent = `${idx}/${total} Clips · Jobs: ${jobsClips} · Legacy: ${legacyClips} · Likes: ${likes} · Downloads: ${downloadedLikes}/${likes}`;
 }
 
+function bindTinderVideoState(root) {
+  const video = root.querySelector(".tinder-video");
+  const status = root.querySelector("#tinder-player-state");
+  if (!video || !status) return;
+  const setState = (text) => {
+    status.textContent = `Player: ${text}`;
+  };
+  setState("laedt...");
+  video.addEventListener("loadstart", () => setState("laedt..."));
+  video.addEventListener("loadeddata", () => setState("bereit"));
+  video.addEventListener("canplay", () => setState("abspielbar"));
+  video.addEventListener("playing", () => setState("spielt"));
+  video.addEventListener("waiting", () => setState("buffering..."));
+  video.addEventListener("stalled", () => setState("verzoegert"));
+  video.addEventListener("error", () => setState("fehler"));
+}
+
 function renderTinderCard() {
   const root = $("#tinder-card");
   if (!root) return;
@@ -1870,8 +1887,10 @@ function renderTinderCard() {
     <video class="tinder-video" src="${escapeHtml(clip.video_url)}" controls playsinline autoplay loop></video>
     <div class="tinder-meta">
       <div class="tinder-title">${escapeHtml(clip.sourceFilename || clip.folder || "Clip")}</div>
+      <div id="tinder-player-state" class="tinder-player-state">Player: laedt...</div>
       <div class="muted">${escapeHtml(formatSeconds(clip.begin_sec))}s - ${escapeHtml(formatSeconds(clip.finish_sec))}s</div>
     </div>`;
+  bindTinderVideoState(root);
   updateTinderStatus();
   renderTinderLikesList();
   renderTinderStats();
