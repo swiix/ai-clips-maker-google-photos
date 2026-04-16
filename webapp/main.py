@@ -236,6 +236,8 @@ class EnqueueBody(BaseModel):
     items: list[MediaItemIn]
     profiles: Optional[List[str]] = None
     trim_method: Optional[str] = None
+    cut_merge_gap_sec: Optional[float] = None
+    cut_min_duration_sec: Optional[float] = None
     openai_merge_gap_sec: Optional[float] = None
     openai_min_segment_sec: Optional[float] = None
     noise_reduction: Optional[bool] = True
@@ -564,28 +566,44 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
         "silence_aggressive",
     }
     noise_reduction_enabled = bool(body.noise_reduction is not False)
+    cut_merge_gap_sec: float | None = None
+    cut_min_duration_sec: float | None = None
+    for candidate in (body.cut_merge_gap_sec, body.openai_merge_gap_sec):
+        if candidate is None:
+            continue
+        try:
+            val = float(candidate)
+            if val > 0:
+                cut_merge_gap_sec = val
+                break
+        except (TypeError, ValueError):
+            pass
+    for candidate in (body.cut_min_duration_sec, body.openai_min_segment_sec):
+        if candidate is None:
+            continue
+        try:
+            val = float(candidate)
+            if val > 0:
+                cut_min_duration_sec = val
+                break
+        except (TypeError, ValueError):
+            pass
 
     def _dump(opts: dict[str, Any]) -> str:
         payload = dict(opts)
         payload["noise_reduction"] = noise_reduction_enabled
+        if cut_merge_gap_sec is not None:
+            payload["cut_merge_gap_sec"] = cut_merge_gap_sec
+        if cut_min_duration_sec is not None:
+            payload["cut_min_duration_sec"] = cut_min_duration_sec
         return json.dumps(payload, ensure_ascii=True)
 
     if raw == "openai_speech":
         opts: dict[str, Any] = {"trim_method": "openai_speech"}
-        if body.openai_merge_gap_sec is not None:
-            try:
-                gap = float(body.openai_merge_gap_sec)
-                if gap > 0:
-                    opts["openai_merge_gap_sec"] = gap
-            except (TypeError, ValueError):
-                pass
-        if body.openai_min_segment_sec is not None:
-            try:
-                min_seg = float(body.openai_min_segment_sec)
-                if min_seg > 0:
-                    opts["openai_min_segment_sec"] = min_seg
-            except (TypeError, ValueError):
-                pass
+        if cut_merge_gap_sec is not None:
+            opts["openai_merge_gap_sec"] = cut_merge_gap_sec
+        if cut_min_duration_sec is not None:
+            opts["openai_min_segment_sec"] = cut_min_duration_sec
         return "openai_speech_trim", _dump(opts)
     if raw in valid_silence:
         return "silence_remove", _dump({"trim_method": raw})

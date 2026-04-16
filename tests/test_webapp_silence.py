@@ -118,8 +118,8 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
         json={
             "items": [{"id": "m_openai", "baseUrl": "https://x", "filename": "a.mp4"}],
             "trim_method": "openai_speech",
-            "openai_merge_gap_sec": 0.8,
-            "openai_min_segment_sec": 0.2,
+            "cut_merge_gap_sec": 0.8,
+            "cut_min_duration_sec": 0.2,
         },
     )
     assert resp.status_code == 200
@@ -130,8 +130,8 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
     assert row["job_type"] == "openai_speech_trim"
     assert "openai_speech" in str(row["job_options"] or "")
     opts = json.loads(str(row["job_options"] or "{}"))
-    assert opts["openai_merge_gap_sec"] == pytest.approx(0.8)
-    assert opts["openai_min_segment_sec"] == pytest.approx(0.2)
+    assert opts["cut_merge_gap_sec"] == pytest.approx(0.8)
+    assert opts["cut_min_duration_sec"] == pytest.approx(0.2)
     assert opts["noise_reduction"] is True
 
 
@@ -145,7 +145,7 @@ def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
         filename="b.mp4",
         base_url="https://x",
         job_type="silence_remove",
-        job_options='{"trim_method":"silence_conservative","profiles":["conservative"]}',
+        job_options='{"trim_method":"silence_conservative","profiles":["conservative"],"cut_merge_gap_sec":0.5,"cut_min_duration_sec":0.3}',
     )
     row = conn.execute("SELECT id FROM jobs WHERE media_item_id = 'm2'").fetchone()
     job_id = int(row["id"])
@@ -158,12 +158,13 @@ def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
     settings = Settings(data_dir=tmp_path, output_dir=tmp_path / "out", cache_dir=cache_dir)
 
     monkeypatch.setattr("webapp.jobs._is_valid_cached_av", lambda *_a, **_k: True)
-    monkeypatch.setattr(
-        "webapp.silence_remover.remove_silence_selected_profiles",
-        lambda *_a, **_k: [
-            {"profile": "conservative"},
-        ],
-    )
+    captured_silence: dict[str, object] = {}
+
+    def fake_silence(*_a, **kwargs):
+        captured_silence.update(kwargs)
+        return [{"profile": "conservative"}]
+
+    monkeypatch.setattr("webapp.silence_remover.remove_silence_selected_profiles", fake_silence)
 
     jobsmod._run_one_job(conn, settings, job_id)
     out = conn.execute(
@@ -176,6 +177,8 @@ def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
     assert out["output_dir"] == str(settings.output_dir)
     assert int(out["outputs_created"] or 0) == 1
     assert out["openai_cost_usd"] is None
+    assert float(captured_silence.get("override_merge_gap_sec") or 0.0) == pytest.approx(0.5)
+    assert float(captured_silence.get("override_min_keep_sec") or 0.0) == pytest.approx(0.3)
 
 
 def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
@@ -188,7 +191,7 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
         filename="c.mp4",
         base_url="https://x",
         job_type="openai_speech_trim",
-        job_options='{"trim_method":"openai_speech","openai_merge_gap_sec":0.8,"openai_min_segment_sec":0.2}',
+        job_options='{"trim_method":"openai_speech","cut_merge_gap_sec":0.8,"cut_min_duration_sec":0.2}',
     )
     row = conn.execute("SELECT id FROM jobs WHERE media_item_id = 'm3'").fetchone()
     job_id = int(row["id"])

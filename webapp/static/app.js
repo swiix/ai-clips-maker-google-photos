@@ -28,9 +28,8 @@ function setTab(name) {
 
 function updateOpenAiTuningVisibility() {
   const box = $("#openai-tuning");
-  const method = ($("#trim-method")?.value || "").toLowerCase();
   if (!box) return;
-  box.classList.toggle("hidden", method !== "openai_speech");
+  box.classList.remove("hidden");
 }
 
 document.querySelectorAll(".tab").forEach((b) => {
@@ -781,8 +780,8 @@ $("#clear-sel").addEventListener("click", () => {
 $("#run-selected").addEventListener("click", async () => {
   $("#media-status").textContent = "Starte Verarbeitung...";
   const trimMethod = ($("#trim-method")?.value || "silence_balanced").toLowerCase();
-  const openaiMergeGapSec = Number($("#openai-merge-gap-sec")?.value || 0.35);
-  const openaiMinSegmentSec = Number($("#openai-min-segment-sec")?.value || 0.04);
+  const cutMergeGapSec = Number($("#openai-merge-gap-sec")?.value || 0.35);
+  const cutMinDurationSec = Number($("#openai-min-segment-sec")?.value || 0.04);
   const noiseReductionEnabled = Boolean($("#noise-reduction-enabled")?.checked);
 
   const selectedItems = Array.from(state.selected.values());
@@ -810,8 +809,8 @@ $("#run-selected").addEventListener("click", async () => {
     body: JSON.stringify({
       items,
       trim_method: trimMethod,
-      openai_merge_gap_sec: trimMethod === "openai_speech" ? openaiMergeGapSec : undefined,
-      openai_min_segment_sec: trimMethod === "openai_speech" ? openaiMinSegmentSec : undefined,
+      cut_merge_gap_sec: cutMergeGapSec,
+      cut_min_duration_sec: cutMinDurationSec,
       noise_reduction: noiseReductionEnabled,
     }),
   });

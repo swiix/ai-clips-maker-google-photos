@@ -140,6 +140,22 @@ def build_keep_segments(
     return keep
 
 
+def merge_keep_segments_by_gap(
+    keep_segments: list[tuple[float, float]], merge_gap_sec: float
+) -> list[tuple[float, float]]:
+    if not keep_segments:
+        return []
+    gap = max(0.0, float(merge_gap_sec))
+    merged: list[tuple[float, float]] = [keep_segments[0]]
+    for s, e in keep_segments[1:]:
+        ls, le = merged[-1]
+        if s - le <= gap:
+            merged[-1] = (ls, max(le, e))
+        else:
+            merged.append((s, e))
+    return merged
+
+
 def _render_segments(input_video: str, output_video: str, keep_segments: list[tuple[float, float]]) -> None:
     if not keep_segments:
         raise RuntimeError("No non-silent segments found to render.")
@@ -226,6 +242,8 @@ def remove_silence_selected_profiles(
     output_dir: str,
     output_prefix: str,
     profile_names: list[str] | None = None,
+    override_min_keep_sec: float | None = None,
+    override_merge_gap_sec: float | None = None,
 ) -> list[RenderedProfile]:
     selected = set(profile_names or [])
     profiles = [p for p in PROFILES if not selected or p.name in selected]
@@ -247,8 +265,12 @@ def remove_silence_selected_profiles(
             total,
             silences,
             padding_sec=profile.padding_sec,
-            min_keep_sec=profile.min_keep_sec,
+            min_keep_sec=max(0.01, float(override_min_keep_sec))
+            if override_min_keep_sec is not None
+            else profile.min_keep_sec,
         )
+        if override_merge_gap_sec is not None:
+            keep = merge_keep_segments_by_gap(keep, max(0.0, float(override_merge_gap_sec)))
         after = output_duration_from_keep_segments(keep)
         dur_tag = duration_before_after_tag(total, after)
         output_path = base / f"{output_prefix}_{dur_tag}_nosilence_{profile.name}.mp4"

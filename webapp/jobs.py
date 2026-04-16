@@ -325,9 +325,13 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
             min_segment_sec = 0.04
             try:
                 options = json.loads(row["job_options"] or "{}")
-                if options.get("openai_merge_gap_sec") is not None:
+                if options.get("cut_merge_gap_sec") is not None:
+                    merge_gap_sec = max(0.01, float(options["cut_merge_gap_sec"]))
+                elif options.get("openai_merge_gap_sec") is not None:
                     merge_gap_sec = max(0.01, float(options["openai_merge_gap_sec"]))
-                if options.get("openai_min_segment_sec") is not None:
+                if options.get("cut_min_duration_sec") is not None:
+                    min_segment_sec = max(0.01, float(options["cut_min_duration_sec"]))
+                elif options.get("openai_min_segment_sec") is not None:
                     min_segment_sec = max(0.01, float(options["openai_min_segment_sec"]))
             except (json.JSONDecodeError, TypeError, ValueError):
                 merge_gap_sec = 0.35
@@ -388,8 +392,14 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 progress=0.55,
             )
             selected_profiles: list[str] = []
+            cut_merge_gap_sec: float | None = None
+            cut_min_duration_sec: float | None = None
             try:
                 options = json.loads(row["job_options"] or "{}")
+                if options.get("cut_merge_gap_sec") is not None:
+                    cut_merge_gap_sec = max(0.01, float(options["cut_merge_gap_sec"]))
+                if options.get("cut_min_duration_sec") is not None:
+                    cut_min_duration_sec = max(0.01, float(options["cut_min_duration_sec"]))
                 trim_method = str(options.get("trim_method") or "").strip()
                 profiles = options.get("profiles")
                 if trim_method == "silence_all":
@@ -415,6 +425,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 str(output_dir),
                 run_prefix,
                 selected_profiles,
+                override_merge_gap_sec=cut_merge_gap_sec,
+                override_min_keep_sec=cut_min_duration_sec,
             )
             best_before: float | None = None
             best_after: float | None = None

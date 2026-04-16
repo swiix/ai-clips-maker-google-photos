@@ -37,14 +37,14 @@
           <input type="checkbox" id="noise-reduction-enabled" checked />
           <span>Noise Reduction</span>
         </label>
-        <div id="openai-tuning" class="openai-tuning hidden" title="Feinabstimmung für OpenAI-Schnitt auf Basis der erkannten Sprach-Timestamps.">
-          <label class="openai-tune-field" title="Maximale Lücke zwischen zwei Sprachsegmenten, die noch zusammengeführt wird. Höher = glatter, aber weniger harte Schnitte.">Merge-Gap (s)
+        <div id="openai-tuning" class="openai-tuning" title="Feinabstimmung der Schnitt-Logik für alle Modi.">
+          <label class="openai-tune-field" title="Maximale Lücke zwischen zwei Segmenten, die noch zusammengeführt wird. Höher = glatter, aber weniger harte Schnitte.">Merge-Gap (s)
             <input type="number" id="openai-merge-gap-sec" min="0.01" step="0.01" value="0.35" title="Empfehlung: 0.25 bis 0.80 Sekunden. Höher verbindet mehr Segmente." />
           </label>
-          <label class="openai-tune-field" title="Mindestdauer eines Sprachsegments. Kürzere Segmente werden verworfen. Höher = weniger Mikro-Schnitte, kann aber kurze Wörter löschen.">Min-Dauer (s)
+          <label class="openai-tune-field" title="Mindestdauer eines Segments. Kürzere Segmente werden verworfen. Höher = weniger Mikro-Schnitte.">Min-Dauer (s)
             <input type="number" id="openai-min-segment-sec" min="0.01" step="0.01" value="0.04" title="Empfehlung: 0.04 bis 0.20 Sekunden. Höher reduziert kurze, nervöse Schnitte." />
           </label>
-          <span class="openai-tuning-help" title="Richtwert: Bei unruhigem Schnitt zuerst Min-Dauer erhöhen, danach Merge-Gap leicht erhöhen.">?</span>
+          <span class="openai-tuning-help" title="Richtwert: Bei unruhigem Schnitt zuerst Min-Dauer erhöhen, danach Merge-Gap leicht erhöhen. Gilt für alle Modi.">?</span>
         </div>
         <button type="button" id="select-all" class="btn">Alle sichtbaren</button>
         <button type="button" id="clear-sel" class="btn">Auswahl leeren</button>
