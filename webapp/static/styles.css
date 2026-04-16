@@ -140,6 +140,14 @@ main {
   margin: 0;
 }
 
+.noise-reduction-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .openai-tune-field {
   display: flex;
   align-items: center;

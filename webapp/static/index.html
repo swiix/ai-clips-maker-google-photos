@@ -37,6 +37,14 @@
           <input type="checkbox" id="noise-reduction-enabled" checked />
           <span>Noise Reduction</span>
         </label>
+        <label class="noise-reduction-mode" title="Wähle, wie stark entrauscht wird. Auto passt die Stärke pro Video an.">
+          <span>Noise Mode</span>
+          <select id="noise-reduction-mode" class="btn">
+            <option value="auto" selected>Auto</option>
+            <option value="mild">Mild</option>
+            <option value="strong">Strong</option>
+          </select>
+        </label>
         <div id="openai-tuning" class="openai-tuning" title="Feinabstimmung der Schnitt-Logik für alle Modi.">
           <label class="openai-tune-field" title="Maximale Lücke zwischen zwei Segmenten, die noch zusammengeführt wird. Höher = glatter, aber weniger harte Schnitte.">Merge-Gap (s)
             <input type="number" id="openai-merge-gap-sec" min="0.01" step="0.01" value="0.35" title="Empfehlung: 0.25 bis 0.80 Sekunden. Höher verbindet mehr Segmente." />

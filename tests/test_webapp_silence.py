@@ -132,6 +132,7 @@ def test_api_enqueue_clip_pipeline_persists_cut_controls(tmp_path: Path):
     assert opts["cut_merge_gap_sec"] == pytest.approx(0.9)
     assert opts["cut_min_duration_sec"] == pytest.approx(0.3)
     assert opts["noise_reduction"] is True
+    assert opts["noise_reduction_mode"] == "auto"
 
 
 def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
@@ -152,6 +153,7 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
             "trim_method": "openai_speech",
             "cut_merge_gap_sec": 0.8,
             "cut_min_duration_sec": 0.2,
+            "noise_reduction_mode": "strong",
         },
     )
     assert resp.status_code == 200
@@ -165,6 +167,7 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
     assert opts["cut_merge_gap_sec"] == pytest.approx(0.8)
     assert opts["cut_min_duration_sec"] == pytest.approx(0.2)
     assert opts["noise_reduction"] is True
+    assert opts["noise_reduction_mode"] == "strong"
 
 
 def test_api_requeues_done_silence_job(tmp_path: Path):

@@ -31,6 +31,8 @@ _worker_started = False
 _worker_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 _DURATION_TAG_RE = re.compile(r"_(\d+(?:d\d+)?)s_to_(\d+(?:d\d+)?)s_")
+_MEAN_VOL_RE = re.compile(r"mean_volume:\s*(-?[0-9]+(?:\.[0-9]+)?)\s*dB")
+_MAX_VOL_RE = re.compile(r"max_volume:\s*(-?[0-9]+(?:\.[0-9]+)?)\s*dB")
 
 
 def enqueue_job_id(job_id: int) -> None:
@@ -249,18 +251,28 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
     )
     processing_input = cache_path
     if _is_noise_reduction_enabled(row["job_options"]):
+        requested_mode = _resolve_noise_mode(row["job_options"])
         dbmod.upsert_job(
             conn,
             media_item_id,
             job_type=job_type,
             status="running",
             phase="noise_reduce",
-            phase_message="Noise Reduction wird angewendet",
+            phase_message=f"Noise Reduction wird angewendet ({requested_mode})",
             progress=0.28,
         )
         nr_path = settings.cache_dir / f"{media_item_id}_nr{ext}"
         try:
-            _apply_noise_reduction_video(cache_path, nr_path)
+            resolved_mode = _apply_noise_reduction_video(cache_path, nr_path, mode=requested_mode)
+            dbmod.upsert_job(
+                conn,
+                media_item_id,
+                job_type=job_type,
+                status="running",
+                phase="noise_reduce",
+                phase_message=f"Noise Reduction aktiv ({resolved_mode})",
+                progress=0.32,
+            )
             if _is_valid_cached_av(nr_path):
                 processing_input = nr_path
             else:
@@ -615,7 +627,63 @@ def _is_noise_reduction_enabled(options_raw: str | None) -> bool:
     return bool(value)
 
 
-def _apply_noise_reduction_video(input_video: Path, output_video: Path) -> None:
+def _resolve_noise_mode(options_raw: str | None) -> str:
+    try:
+        options = json.loads(options_raw or "{}")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return "auto"
+    mode = str(options.get("noise_reduction_mode") or "auto").strip().lower()
+    return mode if mode in {"auto", "mild", "strong"} else "auto"
+
+
+def _probe_volume_stats(input_video: Path) -> tuple[float | None, float | None]:
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "info",
+        "-i",
+        str(input_video),
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
+    ]
+    proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    payload = (proc.stderr or "") + "\n" + (proc.stdout or "")
+    mean_m = _MEAN_VOL_RE.search(payload)
+    max_m = _MAX_VOL_RE.search(payload)
+    mean_v = float(mean_m.group(1)) if mean_m else None
+    max_v = float(max_m.group(1)) if max_m else None
+    return mean_v, max_v
+
+
+def _auto_noise_strength(input_video: Path) -> str:
+    mean_v, max_v = _probe_volume_stats(input_video)
+    if mean_v is None or max_v is None:
+        return "mild"
+    headroom = max_v - mean_v
+    if headroom < 12 or mean_v > -18:
+        return "strong"
+    if headroom < 20 or mean_v > -24:
+        return "mild"
+    return "mild"
+
+
+def _noise_filter_for_mode(mode: str, input_video: Path) -> tuple[str, str]:
+    resolved = mode
+    if mode == "auto":
+        resolved = _auto_noise_strength(input_video)
+    if resolved == "strong":
+        return "strong", "highpass=f=90,lowpass=f=7600,afftdn=nf=-30"
+    if resolved == "mild":
+        return "mild", "highpass=f=70,lowpass=f=9000,afftdn=nf=-20"
+    return "mild", "highpass=f=70,lowpass=f=9000,afftdn=nf=-20"
+
+
+def _apply_noise_reduction_video(input_video: Path, output_video: Path, *, mode: str) -> str:
+    resolved_mode, af = _noise_filter_for_mode(mode, input_video)
     cmd = [
         "ffmpeg",
         "-y",
@@ -625,7 +693,7 @@ def _apply_noise_reduction_video(input_video: Path, output_video: Path) -> None:
         "-i",
         str(input_video),
         "-af",
-        "highpass=f=70,lowpass=f=8000,afftdn=nf=-25",
+        af,
         "-c:v",
         "copy",
         "-c:a",
@@ -638,3 +706,4 @@ def _apply_noise_reduction_video(input_video: Path, output_video: Path) -> None:
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip() or str(proc.returncode)
         raise RuntimeError(f"ffmpeg noise reduction failed: {detail}")
+    return resolved_mode

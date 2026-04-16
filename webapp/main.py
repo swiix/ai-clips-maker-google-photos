@@ -241,6 +241,7 @@ class EnqueueBody(BaseModel):
     openai_merge_gap_sec: Optional[float] = None
     openai_min_segment_sec: Optional[float] = None
     noise_reduction: Optional[bool] = True
+    noise_reduction_mode: Optional[str] = "auto"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -554,9 +555,13 @@ def enqueue_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
     skipped = []
     noise_reduction_enabled = bool(body.noise_reduction is not False)
     cut_merge_gap_sec, cut_min_duration_sec = _extract_cut_tuning_from_body(body)
+    noise_mode = str(body.noise_reduction_mode or "auto").strip().lower()
+    if noise_mode not in {"auto", "mild", "strong"}:
+        noise_mode = "auto"
     options: dict[str, Any] = {
         "trim_method": "clip_pipeline_ai",
         "noise_reduction": noise_reduction_enabled,
+        "noise_reduction_mode": noise_mode,
     }
     if cut_merge_gap_sec is not None:
         options["cut_merge_gap_sec"] = cut_merge_gap_sec
@@ -598,11 +603,15 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
         "silence_aggressive",
     }
     noise_reduction_enabled = bool(body.noise_reduction is not False)
+    noise_mode = str(body.noise_reduction_mode or "auto").strip().lower()
+    if noise_mode not in {"auto", "mild", "strong"}:
+        noise_mode = "auto"
     cut_merge_gap_sec, cut_min_duration_sec = _extract_cut_tuning_from_body(body)
 
     def _dump(opts: dict[str, Any]) -> str:
         payload = dict(opts)
         payload["noise_reduction"] = noise_reduction_enabled
+        payload["noise_reduction_mode"] = noise_mode
         if cut_merge_gap_sec is not None:
             payload["cut_merge_gap_sec"] = cut_merge_gap_sec
         if cut_min_duration_sec is not None:

@@ -15,6 +15,7 @@ const videoRetryCountById = new Map();
 const STORAGE_KEYS = {
   cutMergeGapSec: "ai_clips_cut_merge_gap_sec",
   cutMinDurationSec: "ai_clips_cut_min_duration_sec",
+  noiseReductionMode: "ai_clips_noise_reduction_mode",
 };
 
 function $(sel) {
@@ -41,6 +42,13 @@ function restoreCutTuningFromStorage() {
     const savedMin = window.localStorage.getItem(STORAGE_KEYS.cutMinDurationSec);
     if (savedMin !== null && savedMin !== "") minInput.value = savedMin;
   }
+  const modeSelect = $("#noise-reduction-mode");
+  if (modeSelect) {
+    const savedMode = (window.localStorage.getItem(STORAGE_KEYS.noiseReductionMode) || "").toLowerCase();
+    if (savedMode && ["auto", "mild", "strong"].includes(savedMode)) {
+      modeSelect.value = savedMode;
+    }
+  }
 }
 
 function persistCutTuningToStorage(gapSec, minDurationSec) {
@@ -51,6 +59,14 @@ function persistCutTuningToStorage(gapSec, minDurationSec) {
     if (Number.isFinite(minDurationSec) && minDurationSec > 0) {
       window.localStorage.setItem(STORAGE_KEYS.cutMinDurationSec, String(minDurationSec));
     }
+  } catch (_) {}
+}
+
+function persistNoiseModeToStorage(mode) {
+  const normalized = String(mode || "auto").toLowerCase();
+  if (!["auto", "mild", "strong"].includes(normalized)) return;
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.noiseReductionMode, normalized);
   } catch (_) {}
 }
 
@@ -824,7 +840,9 @@ $("#run-selected").addEventListener("click", async () => {
   const cutMergeGapSec = Number($("#openai-merge-gap-sec")?.value || 0.35);
   const cutMinDurationSec = Number($("#openai-min-segment-sec")?.value || 0.04);
   const noiseReductionEnabled = Boolean($("#noise-reduction-enabled")?.checked);
+  const noiseReductionMode = ($("#noise-reduction-mode")?.value || "auto").toLowerCase();
   persistCutTuningToStorage(cutMergeGapSec, cutMinDurationSec);
+  persistNoiseModeToStorage(noiseReductionMode);
 
   const selectedItems = Array.from(state.selected.values());
   const sourceItems = selectedItems.length ? selectedItems : visibleItems();
@@ -854,6 +872,7 @@ $("#run-selected").addEventListener("click", async () => {
       cut_merge_gap_sec: cutMergeGapSec,
       cut_min_duration_sec: cutMinDurationSec,
       noise_reduction: noiseReductionEnabled,
+      noise_reduction_mode: noiseReductionMode,
     }),
   });
   const j = await r.json();
@@ -863,7 +882,7 @@ $("#run-selected").addEventListener("click", async () => {
   loadJobs();
   const jobsStatus = $("#jobs-status");
   if (jobsStatus) {
-    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise Reduction: ${noiseReductionEnabled ? "an" : "aus"}): ${j.queued_job_ids.length} eingereiht, ${Math.max(j.skipped_media_ids.length, localSkipped)} übersprungen${notReadyInfo}`;
+    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise Reduction: ${noiseReductionEnabled ? `an (${noiseReductionMode})` : "aus"}): ${j.queued_job_ids.length} eingereiht, ${Math.max(j.skipped_media_ids.length, localSkipped)} übersprungen${notReadyInfo}`;
   }
 });
 
