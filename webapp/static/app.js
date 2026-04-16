@@ -1920,6 +1920,15 @@ function renderTinderCard() {
   const beforeAfterText = durations
     ? `${escapeHtml(formatSeconds(durations.before))}s / ${escapeHtml(formatSeconds(durations.after))}s`
     : "n/a";
+  const gainText = (() => {
+    if (!durations) return "n/a";
+    const before = Number(durations.before);
+    const after = Number(durations.after);
+    if (!Number.isFinite(before) || !Number.isFinite(after) || before <= 0) return "n/a";
+    const savedSec = Math.max(0, before - after);
+    const savedPct = Math.max(0, Math.min(100, (savedSec / before) * 100));
+    return `${escapeHtml(formatSeconds(savedSec))}s (${escapeHtml(savedPct.toFixed(1).replace(".", ","))}%)`;
+  })();
   root.innerHTML = `<div class="tinder-chip">Clip #${escapeHtml(String(clip.index || 0))}</div>
     <video class="tinder-video" src="${escapeHtml(clip.video_url)}" controls playsinline autoplay loop></video>
     <div class="tinder-meta">
@@ -1933,6 +1942,10 @@ function renderTinderCard() {
         <div class="tinder-meta-item">
           <span class="tinder-meta-label">Dauer vorher/nachher</span>
           <span class="tinder-meta-value">${beforeAfterText}</span>
+        </div>
+        <div class="tinder-meta-item">
+          <span class="tinder-meta-label">Gewonnen</span>
+          <span class="tinder-meta-value">${gainText}</span>
         </div>
         <div class="tinder-meta-item tinder-meta-item-wide">
           <span class="tinder-meta-label">Clip-Segment</span>
