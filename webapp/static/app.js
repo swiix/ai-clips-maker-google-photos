@@ -33,13 +33,43 @@ function $(sel) {
   return document.querySelector(sel);
 }
 
-function setTab(name) {
+function isValidTabName(name) {
+  if (!name) return false;
+  return Boolean(document.querySelector(`.tab[data-tab="${name}"]`));
+}
+
+function tabFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    const queryTab = (url.searchParams.get("tab") || "").trim();
+    if (isValidTabName(queryTab)) return queryTab;
+    const hashTab = String(window.location.hash || "").replace(/^#/, "").trim();
+    if (isValidTabName(hashTab)) return hashTab;
+  } catch (_) {}
+  return null;
+}
+
+function syncUrlToTab(tabName, replaceHistory = false) {
+  if (!isValidTabName(tabName)) return;
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("tab") === tabName) return;
+    url.searchParams.set("tab", tabName);
+    const method = replaceHistory ? "replaceState" : "pushState";
+    window.history[method]({}, "", url.toString());
+  } catch (_) {}
+}
+
+function setTab(name, options = {}) {
+  const { syncUrl = true, replaceHistory = false } = options;
+  const safeName = isValidTabName(name) ? name : "sources";
   document.querySelectorAll(".tab").forEach((b) => {
-    b.classList.toggle("active", b.dataset.tab === name);
+    b.classList.toggle("active", b.dataset.tab === safeName);
   });
   document.querySelectorAll(".panel").forEach((p) => {
-    p.classList.toggle("active", p.id === `panel-${name}`);
+    p.classList.toggle("active", p.id === `panel-${safeName}`);
   });
+  if (syncUrl) syncUrlToTab(safeName, replaceHistory);
 }
 
 function isTabActive(name) {
@@ -170,7 +200,11 @@ function updateOpenAiTuningVisibility() {
 }
 
 document.querySelectorAll(".tab").forEach((b) => {
-  b.addEventListener("click", () => setTab(b.dataset.tab));
+  b.addEventListener("click", () => setTab(b.dataset.tab, { syncUrl: true, replaceHistory: false }));
+});
+window.addEventListener("popstate", () => {
+  const routeTab = tabFromUrl();
+  if (routeTab) setTab(routeTab, { syncUrl: false });
 });
 
 async function authStatus() {
@@ -1847,6 +1881,7 @@ document.addEventListener("keydown", (ev) => {
 });
 
 authStatus();
+setTab(tabFromUrl() || "sources", { syncUrl: true, replaceHistory: true });
 loadJobs();
 restoreLastPickerSession();
 startJobsPolling();
