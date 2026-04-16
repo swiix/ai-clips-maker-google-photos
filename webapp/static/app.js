@@ -901,6 +901,18 @@ function renderStatusBadge(status) {
   return `<span class="job-badge ${css}">${escapeHtml(value || "-")}</span>`;
 }
 
+function renderReviewStateBadge(reviewState) {
+  const value = String(reviewState || "none").toLowerCase();
+  const css =
+    value === "liked"
+      ? "job-badge-status-done"
+      : value === "skipped"
+      ? "job-badge-status-failed"
+      : "job-badge-neutral";
+  const label = value === "liked" ? "liked" : value === "skipped" ? "skipped" : "none";
+  return `<span class="job-badge ${css}">review: ${escapeHtml(label)}</span>`;
+}
+
 function showPage(idx) {
   const p = state.pages[idx];
   if (!p) return;
@@ -1278,7 +1290,9 @@ async function loadJobs() {
     const jobType = row.job_type || "clip_pipeline";
     const optionsSummary = parseJobOptionsSummary(row.job_options);
     const profExtra = renderProfileBadges(row.job_options);
-    const methodBlock = `<div class="job-badges">${renderTrimMethodBadge(row.job_options)}</div>${
+    const methodBlock = `<div class="job-badges">${renderTrimMethodBadge(row.job_options)} ${renderReviewStateBadge(
+      row.review_state
+    )}</div>${
       profExtra ? `<div class="job-badges" style="margin-top:0.25rem">${profExtra}</div>` : ""
     }`;
     const statusBadge = renderStatusBadge(row.status);

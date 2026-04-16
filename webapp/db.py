@@ -365,7 +365,39 @@ def get_trim_statistics(conn: sqlite3.Connection) -> dict[str, Any]:
 def list_jobs(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, Any]]:
     with _lock:
         rows = conn.execute(
-            "SELECT * FROM jobs ORDER BY updated_at DESC LIMIT ?", (limit,)
+            """
+            SELECT
+                j.*,
+                COALESCE(rv_by_job.review_state, rv_by_media.review_state, 'none') AS review_state
+            FROM jobs j
+            LEFT JOIN (
+                SELECT
+                    job_id,
+                    CASE
+                        WHEN SUM(CASE WHEN decision = 'like' THEN 1 ELSE 0 END) > 0 THEN 'liked'
+                        WHEN SUM(CASE WHEN decision = 'dislike' THEN 1 ELSE 0 END) > 0 THEN 'skipped'
+                        ELSE 'none'
+                    END AS review_state
+                FROM tinder_reviews
+                WHERE job_id IS NOT NULL
+                GROUP BY job_id
+            ) rv_by_job ON rv_by_job.job_id = j.id
+            LEFT JOIN (
+                SELECT
+                    media_item_id,
+                    CASE
+                        WHEN SUM(CASE WHEN decision = 'like' THEN 1 ELSE 0 END) > 0 THEN 'liked'
+                        WHEN SUM(CASE WHEN decision = 'dislike' THEN 1 ELSE 0 END) > 0 THEN 'skipped'
+                        ELSE 'none'
+                    END AS review_state
+                FROM tinder_reviews
+                WHERE media_item_id IS NOT NULL AND media_item_id != ''
+                GROUP BY media_item_id
+            ) rv_by_media ON rv_by_media.media_item_id = j.media_item_id
+            ORDER BY j.updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -407,7 +439,7 @@ def upsert_tinder_review(
     decision_norm: str | None = None
     if decision is not None:
         raw = str(decision).strip().lower()
-        if raw in {"like", "dislike"}:
+        if raw in {"like", "dislike", "none"}:
             decision_norm = raw
     downloaded_norm: int | None = None
     if downloaded is not None:
