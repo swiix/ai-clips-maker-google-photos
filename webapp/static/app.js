@@ -1977,9 +1977,15 @@ function renderTinderCard() {
     return;
   }
   const durations = getClipDurations(clip);
-  const beforeAfterText = durations
-    ? `${escapeHtml(formatSeconds(durations.before))}s / ${escapeHtml(formatSeconds(durations.after))}s`
-    : "n/a";
+  const beforeAfterText = (() => {
+    if (!durations) return "n/a";
+    const before = Number(durations.before);
+    const after = Number(durations.after);
+    if (!Number.isFinite(before) || !Number.isFinite(after) || before <= 0) return "n/a";
+    const savedPct = Math.max(0, Math.min(100, ((before - after) / before) * 100));
+    const pctText = `−${savedPct.toFixed(1).replace(".", ",")}%`;
+    return `${escapeHtml(formatSeconds(before))}s → ${escapeHtml(formatSeconds(after))}s (${escapeHtml(pctText)})`;
+  })();
   const gainText = (() => {
     if (!durations) return "n/a";
     const before = Number(durations.before);
