@@ -1183,7 +1183,31 @@ async function copyLatestJob() {
   if (jobsStatus) jobsStatus.textContent = "Letzter Job in Zwischenablage kopiert.";
 }
 
+async function retryFailedCachedJobs() {
+  const jobsStatus = $("#jobs-status");
+  if (jobsStatus) jobsStatus.textContent = "Pruefe fehlgeschlagene Jobs mit lokalem Cache...";
+  try {
+    const r = await fetch("/api/jobs/retry-failed-cached", { method: "POST" });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+    const data = await r.json();
+    const retried = Number((data.retried_job_ids || []).length || 0);
+    const noCache = Number((data.skipped_no_cache_ids || []).length || 0);
+    const notRq = Number((data.skipped_not_requeueable_ids || []).length || 0);
+    if (jobsStatus) {
+      jobsStatus.textContent = `Neu gestartet: ${retried} · Ohne Cache: ${noCache} · Nicht requeuebar: ${notRq}`;
+    }
+    await loadJobs();
+  } catch (err) {
+    if (jobsStatus) jobsStatus.textContent = `Neu starten fehlgeschlagen: ${err.message || "Unbekannter Fehler"}`;
+  }
+}
+
 $("#copy-latest-job").addEventListener("click", copyLatestJob);
+const retryFailedCachedBtn = $("#retry-failed-cached-jobs");
+if (retryFailedCachedBtn) retryFailedCachedBtn.addEventListener("click", retryFailedCachedJobs);
 
 function startJobsPolling() {
   if (state.jobsPollTimer) return;

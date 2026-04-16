@@ -756,6 +756,52 @@ def list_jobs(conn: DbDep, settings: SettingsDep) -> list[dict[str, Any]]:
     return [_enrich_job_cut_metrics(r, settings) for r in rows]
 
 
+@app.post("/api/jobs/retry-failed-cached")
+def retry_failed_cached_jobs(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
+    """
+    Requeue failed jobs only when local cached source file exists.
+    Useful after dev-server reloads where running jobs were marked failed.
+    """
+    rows = conn.execute(
+        """
+        SELECT id, media_item_id, filename, base_url, product_url, creation_time,
+               job_type, job_options, trim_method_label, status
+        FROM jobs
+        WHERE status = 'failed'
+        ORDER BY id
+        """
+    ).fetchall()
+    retried_job_ids: list[int] = []
+    skipped_no_cache_ids: list[int] = []
+    skipped_not_requeueable_ids: list[int] = []
+    for r in rows:
+        cache_path = _cache_target_path(settings, str(r["media_item_id"]), r["filename"])
+        if not cache_path.is_file() or cache_path.stat().st_size <= 0:
+            skipped_no_cache_ids.append(int(r["id"]))
+            continue
+        jid, enq = dbmod.create_or_requeue_job(
+            conn,
+            str(r["media_item_id"]),
+            filename=r["filename"],
+            base_url=r["base_url"],
+            product_url=r["product_url"],
+            creation_time=r["creation_time"],
+            job_type=str(r["job_type"] or "clip_pipeline"),
+            job_options=r["job_options"],
+            trim_method_label=r["trim_method_label"],
+        )
+        if enq:
+            jobsmod.enqueue_job_id(jid)
+            retried_job_ids.append(jid)
+        else:
+            skipped_not_requeueable_ids.append(int(r["id"]))
+    return {
+        "retried_job_ids": retried_job_ids,
+        "skipped_no_cache_ids": skipped_no_cache_ids,
+        "skipped_not_requeueable_ids": skipped_not_requeueable_ids,
+    }
+
+
 def _parse_duration_token(tok: str) -> float | None:
     try:
         return float(tok.replace("d", "."))
