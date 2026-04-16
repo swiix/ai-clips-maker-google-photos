@@ -16,6 +16,7 @@ const state = {
   tinderDownloaded: new Map(),
   tinderLikeFilter: "all",
   tinderDecisions: new Map(),
+  settingsClearDays: 30,
 };
 const videoRetryCountById = new Map();
 const STORAGE_KEYS = {
@@ -558,6 +559,102 @@ function formatUsdAmount(n) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 4,
   }).format(Number(n));
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0 MB";
+  const mb = n / (1024 * 1024);
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}
+
+function updateSettingsDaysButtons() {
+  document.querySelectorAll(".settings-day-btn").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.dataset.days) === state.settingsClearDays);
+  });
+}
+
+async function loadSettingsCacheSummary() {
+  const status = $("#settings-status");
+  try {
+    const r = await fetch("/api/cache/summary");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const by = data.by_type || {};
+    const videosBytes = Number((by.videos && by.videos.bytes) || 0);
+    const imagesBytes = Number((by.images && by.images.bytes) || 0);
+    const audioBytes = Number((by.audio && by.audio.bytes) || 0);
+    const otherBytes = Number((by.other_files && by.other_files.bytes) || 0);
+    const totalBytes = Number(data.total_bytes || 0);
+    $("#settings-total-size").textContent = formatBytes(totalBytes);
+    $("#settings-videos-size").textContent = formatBytes(videosBytes);
+    $("#settings-images-size").textContent = formatBytes(imagesBytes);
+    $("#settings-audio-size").textContent = formatBytes(audioBytes);
+    $("#settings-other-size").textContent = formatBytes(otherBytes);
+    const total = Math.max(totalBytes, 1);
+    const videosPct = Math.round((videosBytes * 100) / total);
+    const imagesPct = Math.round((imagesBytes * 100) / total);
+    const audioPct = Math.round((audioBytes * 100) / total);
+    const otherPct = Math.max(0, 100 - videosPct - imagesPct - audioPct);
+    const ring = $("#settings-cache-ring");
+    if (ring) {
+      ring.style.background = `conic-gradient(
+        #5b4bdb 0 ${videosPct}%,
+        #4aa3ff ${videosPct}% ${videosPct + imagesPct}%,
+        #55d39a ${videosPct + imagesPct}% ${videosPct + imagesPct + audioPct}%,
+        #9aa0a6 ${videosPct + imagesPct + audioPct}% ${videosPct + imagesPct + audioPct + otherPct}%
+      )`;
+    }
+    if (status) status.textContent = `Cache-Dateien: ${Number(data.total_files || 0)}`;
+  } catch (err) {
+    if (status) status.textContent = `Cache-Statistik konnte nicht geladen werden: ${err.message || err}`;
+  }
+}
+
+async function clearSettingsCacheAdvanced() {
+  const status = $("#settings-status");
+  const payload = {
+    older_than_days: state.settingsClearDays,
+    images: Boolean($("#settings-clear-images")?.checked),
+    videos: Boolean($("#settings-clear-videos")?.checked),
+    audio: Boolean($("#settings-clear-audio")?.checked),
+    other_files: Boolean($("#settings-clear-other")?.checked),
+  };
+  if (!payload.images && !payload.videos && !payload.audio && !payload.other_files) {
+    if (status) status.textContent = "Bitte mindestens einen Dateityp auswählen.";
+    return;
+  }
+  if (status) status.textContent = "Lösche Cache-Dateien...";
+  try {
+    const r = await fetch("/api/cache/clear-advanced", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    if (status) {
+      status.textContent = `Entfernt: ${Number(data.removed_files || 0)} · Übersprungen (zu neu): ${Number(data.skipped_recent_files || 0)} · Fehler: ${Number(data.failed_files || 0)}`;
+    }
+    await loadSettingsCacheSummary();
+  } catch (err) {
+    if (status) status.textContent = `Löschen fehlgeschlagen: ${err.message || err}`;
+  }
+}
+
+async function clearSettingsCacheAll() {
+  const status = $("#settings-status");
+  if (status) status.textContent = "Lösche gesamten Cache...";
+  try {
+    const r = await fetch("/api/cache/clear", { method: "POST" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    if (status) status.textContent = `Alle Cache-Dateien entfernt: ${Number(data.removed_files || 0)} (Fehler: ${Number(data.failed_files || 0)})`;
+    await loadSettingsCacheSummary();
+  } catch (err) {
+    if (status) status.textContent = `Clear All fehlgeschlagen: ${err.message || err}`;
+  }
 }
 
 async function loadStats() {
@@ -1624,6 +1721,9 @@ document.querySelector('[data-tab="stats"]').addEventListener("click", () => {
 document.querySelector('[data-tab="cuts"]').addEventListener("click", () => {
   loadCutsView();
 });
+document.querySelector('[data-tab="settings"]').addEventListener("click", () => {
+  loadSettingsCacheSummary();
+});
 
 const refreshStats = $("#refresh-stats");
 if (refreshStats) refreshStats.addEventListener("click", () => loadStats());
@@ -1642,6 +1742,16 @@ const tinderExportLikesBtn = $("#tinder-export-likes");
 if (tinderExportLikesBtn) tinderExportLikesBtn.addEventListener("click", () => exportTinderLikes());
 const tinderLikeFilterToggleBtn = $("#tinder-like-filter-toggle");
 if (tinderLikeFilterToggleBtn) tinderLikeFilterToggleBtn.addEventListener("click", () => cycleTinderLikeFilter());
+document.querySelectorAll(".settings-day-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.settingsClearDays = Number(btn.dataset.days || 30);
+    updateSettingsDaysButtons();
+  });
+});
+const settingsClearSelectedBtn = $("#settings-clear-selected");
+if (settingsClearSelectedBtn) settingsClearSelectedBtn.addEventListener("click", clearSettingsCacheAdvanced);
+const settingsClearAllBtn = $("#settings-clear-all-btn");
+if (settingsClearAllBtn) settingsClearAllBtn.addEventListener("click", clearSettingsCacheAll);
 
 document.addEventListener("keydown", (ev) => {
   if (!isTabActive("tinderwatch")) return;
@@ -1664,3 +1774,4 @@ updateOpenAiTuningVisibility();
 loadTinderStateFromStorage();
 updateTinderLikeFilterButton();
 renderTinderStats();
+updateSettingsDaysButtons();

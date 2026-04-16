@@ -244,6 +244,14 @@ class EnqueueBody(BaseModel):
     noise_reduction_mode: Optional[str] = "auto"
 
 
+class CacheClearAdvancedBody(BaseModel):
+    older_than_days: int = 30
+    images: bool = True
+    videos: bool = True
+    audio: bool = True
+    other_files: bool = True
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     index_path = static_dir / "index.html"
@@ -496,6 +504,47 @@ def cached_video_status(
     return {"ready": size > 0, "size_bytes": size}
 
 
+def _cache_bucket_for_file(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif"}:
+        return "images"
+    if ext in {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}:
+        return "videos"
+    if ext in {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}:
+        return "audio"
+    return "other_files"
+
+
+@app.get("/api/cache/summary")
+def cache_summary(settings: SettingsDep) -> dict[str, Any]:
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    by_type: dict[str, dict[str, int]] = {
+        "images": {"count": 0, "bytes": 0},
+        "videos": {"count": 0, "bytes": 0},
+        "audio": {"count": 0, "bytes": 0},
+        "other_files": {"count": 0, "bytes": 0},
+    }
+    total_bytes = 0
+    total_files = 0
+    for p in settings.cache_dir.iterdir():
+        if not p.is_file():
+            continue
+        try:
+            size = int(p.stat().st_size)
+        except OSError:
+            continue
+        bucket = _cache_bucket_for_file(p)
+        by_type[bucket]["count"] += 1
+        by_type[bucket]["bytes"] += size
+        total_bytes += size
+        total_files += 1
+    return {
+        "total_bytes": total_bytes,
+        "total_files": total_files,
+        "by_type": by_type,
+    }
+
+
 @app.post("/api/cache/clear")
 def clear_video_cache(settings: SettingsDep) -> dict[str, Any]:
     settings.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -510,6 +559,49 @@ def clear_video_cache(settings: SettingsDep) -> dict[str, Any]:
         except Exception:
             failed += 1
     return {"removed_files": removed, "failed_files": failed}
+
+
+@app.post("/api/cache/clear-advanced")
+def clear_video_cache_advanced(body: CacheClearAdvancedBody, settings: SettingsDep) -> dict[str, Any]:
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    cutoff = now - (max(0, int(body.older_than_days)) * 86400)
+    enabled_buckets = set()
+    if body.images:
+        enabled_buckets.add("images")
+    if body.videos:
+        enabled_buckets.add("videos")
+    if body.audio:
+        enabled_buckets.add("audio")
+    if body.other_files:
+        enabled_buckets.add("other_files")
+
+    removed = 0
+    failed = 0
+    skipped_recent = 0
+    skipped_type = 0
+    for p in settings.cache_dir.iterdir():
+        if not p.is_file():
+            continue
+        bucket = _cache_bucket_for_file(p)
+        if bucket not in enabled_buckets:
+            skipped_type += 1
+            continue
+        try:
+            st = p.stat()
+            if st.st_mtime > cutoff:
+                skipped_recent += 1
+                continue
+            p.unlink()
+            removed += 1
+        except Exception:
+            failed += 1
+    return {
+        "removed_files": removed,
+        "failed_files": failed,
+        "skipped_recent_files": skipped_recent,
+        "skipped_type_files": skipped_type,
+    }
 
 
 _STATS_METHOD_LABELS_DE: dict[str, str] = {
