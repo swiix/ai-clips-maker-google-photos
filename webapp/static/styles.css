@@ -513,3 +513,42 @@ code {
   font-size: 0.85em;
   color: var(--accent);
 }
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  font-size: 0.88rem;
+}
+
+.stats-table th,
+.stats-table td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.stats-table th {
+  color: var(--muted);
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.stats-table tbody tr:hover {
+  background: rgba(138, 180, 248, 0.06);
+}
+
+.stats-disclaimer {
+  margin-top: 0.35rem;
+  max-width: 52rem;
+  line-height: 1.45;
+}
+
+.stats-totals {
+  margin-top: 1rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}

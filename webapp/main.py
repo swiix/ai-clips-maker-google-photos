@@ -504,6 +504,17 @@ def clear_video_cache(settings: SettingsDep) -> dict[str, Any]:
     return {"removed_files": removed, "failed_files": failed}
 
 
+_STATS_METHOD_LABELS_DE: dict[str, str] = {
+    "openai_speech": "OpenAI (Whisper · gesprochene Segmente)",
+    "silence_all": "Stille entfernen · alle Profile",
+    "silence_conservative": "Stille entfernen · Conservative",
+    "silence_balanced": "Stille entfernen · Balanced",
+    "silence_aggressive": "Stille entfernen · Aggressive",
+    "silence_unknown": "Stille entfernen (älterer Eintrag)",
+    "clip_pipeline_ai": "KI-Clip-Pipeline (Diarize + Clips)",
+}
+
+
 @app.post("/api/jobs")
 def enqueue_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
     queued = []
@@ -520,6 +531,7 @@ def enqueue_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
             product_url=it.productUrl,
             creation_time=it.creationTime,
             job_type="clip_pipeline",
+            trim_method_label="clip_pipeline_ai",
         )
         if enq:
             jobsmod.enqueue_job_id(jid)
@@ -560,11 +572,26 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
     return "silence_remove", json.dumps({"trim_method": "silence_balanced"}, ensure_ascii=True)
 
 
+def _trim_method_label_for_enqueue(body: EnqueueBody) -> str:
+    _job_type, options_json = _trim_job_type_and_options(body)
+    try:
+        o = json.loads(options_json)
+        tm = str(o.get("trim_method") or "").strip()
+        if tm:
+            return tm
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    if _job_type == "openai_speech_trim":
+        return "openai_speech"
+    return "silence_balanced"
+
+
 @app.post("/api/jobs/silence-remove")
 def enqueue_silence_remove_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
     queued = []
     skipped = []
     job_type, options_json = _trim_job_type_and_options(body)
+    method_label = _trim_method_label_for_enqueue(body)
     for it in body.items:
         if not it.id or not it.baseUrl:
             skipped.append(it.id or "<missing-id>")
@@ -578,6 +605,7 @@ def enqueue_silence_remove_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any
             creation_time=it.creationTime,
             job_type=job_type,
             job_options=options_json,
+            trim_method_label=method_label,
         )
         if enq:
             jobsmod.enqueue_job_id(jid)
@@ -660,6 +688,33 @@ def preflight(settings: SettingsDep) -> dict[str, Any]:
 @app.get("/api/jobs")
 def list_jobs(conn: DbDep) -> list[dict[str, Any]]:
     return dbmod.list_jobs(conn)
+
+
+@app.get("/api/stats")
+def api_job_stats(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
+    raw = dbmod.get_trim_statistics(conn)
+    usd_per_min = float(settings.openai_whisper_usd_per_minute)
+    enriched: list[dict[str, Any]] = []
+    for m in raw["by_method"]:
+        key = m["method_key"]
+        is_openai = key == "openai_speech"
+        row = {
+            **m,
+            "label_de": _STATS_METHOD_LABELS_DE.get(key, key.replace("_", " ")),
+            "openai_usage_credits_usd": round(float(m["openai_cost_usd"]), 6) if is_openai else None,
+        }
+        enriched.append(row)
+    totals = dict(raw["totals"])
+    totals["openai_usage_credits_usd"] = round(float(totals.get("openai_cost_usd") or 0.0), 6)
+    return {
+        "by_method": enriched,
+        "totals": totals,
+        "openai_usd_per_minute_assumed": usd_per_min,
+        "disclaimer_de": (
+            "OpenAI: geschätzte Kosten aus transkribierter Audio-Länge × OPENAI_WHISPER_USD_PER_MINUTE. "
+            "Im OpenAI-Dashboard erscheint die Nutzung in USD (häufig als Guthaben/Credits angezeigt)."
+        ),
+    }
 
 
 @app.get("/api/gallery")

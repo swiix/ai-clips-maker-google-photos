@@ -287,12 +287,14 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 progress=0.40,
             )
             model = settings.openai_transcription_model or "whisper-1"
+            usd_per_min = float(settings.openai_whisper_usd_per_minute)
             result = trim_video_to_openai_speech(
                 str(cache_path),
                 str(output_dir),
                 run_prefix,
                 api_key,
                 model=model,
+                usd_per_minute=usd_per_min,
             )
             out_name = Path(result["video_path"]).name
             dbmod.upsert_job(
@@ -305,6 +307,21 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 progress=1.0,
                 output_dir=str(output_dir),
                 error=None,
+            )
+            try:
+                o_secs = float(str(result.get("input_audio_seconds") or "0") or 0.0)
+            except (TypeError, ValueError):
+                o_secs = 0.0
+            try:
+                o_cost = float(str(result.get("estimated_cost_usd") or "0") or 0.0)
+            except (TypeError, ValueError):
+                o_cost = 0.0
+            dbmod.set_job_run_metrics(
+                conn,
+                media_item_id,
+                outputs_created=1,
+                openai_input_seconds=o_secs if o_secs > 0 else None,
+                openai_cost_usd=o_cost if o_cost > 0 else None,
             )
         elif job_type == "silence_remove":
             from webapp.silence_remover import remove_silence_selected_profiles
@@ -358,6 +375,13 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 output_dir=str(output_dir),
                 error=None,
             )
+            dbmod.set_job_run_metrics(
+                conn,
+                media_item_id,
+                outputs_created=len(rendered),
+                openai_input_seconds=None,
+                openai_cost_usd=None,
+            )
         else:
             token = settings.pyannote_token or __import__("os").environ.get("HF_TOKEN", "")
             if not token:
@@ -406,6 +430,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                     output_dir=str(output_dir),
                 )
             else:
+                n_clips = len(result.clips) if getattr(result, "clips", None) else 0
                 dbmod.upsert_job(
                     conn,
                     media_item_id,
@@ -416,6 +441,13 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                     progress=1.0,
                     output_dir=str(output_dir),
                     error=None,
+                )
+                dbmod.set_job_run_metrics(
+                    conn,
+                    media_item_id,
+                    outputs_created=n_clips,
+                    openai_input_seconds=None,
+                    openai_cost_usd=None,
                 )
     except Exception as exc:
         try:

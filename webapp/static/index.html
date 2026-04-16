@@ -13,6 +13,7 @@
       <button type="button" data-tab="sources" class="tab active">Quellen</button>
       <button type="button" data-tab="gallery" class="tab">Galerie</button>
       <button type="button" data-tab="jobs" class="tab">Jobs</button>
+      <button type="button" data-tab="stats" class="tab">Statistik</button>
     </nav>
     <div class="auth">
       <span id="auth-label" class="muted">…</span>
@@ -66,8 +67,30 @@
         <tbody id="jobs-body"></tbody>
       </table>
     </section>
+
+    <section id="panel-stats" class="panel">
+      <div class="toolbar">
+        <button type="button" id="refresh-stats" class="btn">Aktualisieren</button>
+      </div>
+      <p id="stats-status" class="muted">Nur abgeschlossene Jobs (Status „done“).</p>
+      <p id="stats-disclaimer" class="muted stats-disclaimer"></p>
+      <table class="stats-table">
+        <thead>
+          <tr>
+            <th>Methode</th>
+            <th>Fertige Jobs</th>
+            <th>Ausgaben (Clips/Dateien)</th>
+            <th>OpenAI Audio (Min)</th>
+            <th>Kosten (USD)</th>
+            <th>Credits (USD)</th>
+          </tr>
+        </thead>
+        <tbody id="stats-body"></tbody>
+      </table>
+      <div id="stats-totals" class="stats-totals muted"></div>
+    </section>
   </main>
 
-  <script src="/static/app.js?v=picker28" defer></script>
+  <script src="/static/app.js?v=stats1" defer></script>
 </body>
 </html>

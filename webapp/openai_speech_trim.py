@@ -114,6 +114,7 @@ def trim_video_to_openai_speech(
     api_key: str,
     *,
     model: str = "whisper-1",
+    usd_per_minute: float = 0.006,
 ) -> dict[str, str]:
     """
     Transcribe audio via OpenAI, keep only intervals where speech segments exist, concat video.
@@ -158,15 +159,21 @@ def trim_video_to_openai_speech(
 
     out_video = out_dir / f"{output_prefix}_speech_openai.mp4"
     render_keep_segments_video(input_video, str(out_video), clamped)
+    billed_minutes = total / 60.0
+    cost_usd = billed_minutes * float(usd_per_minute)
     logger.info(
-        "OpenAI speech trim: %s segments -> %s (duration %.2fs)",
+        "OpenAI speech trim: %s segments -> %s (duration %.2fs, est. $%.4f)",
         len(clamped),
         out_video,
         total,
+        cost_usd,
     )
     return {
         "video_path": str(out_video),
         "transcript_json": str(raw_path),
         "segments_kept": str(len(clamped)),
+        "input_audio_seconds": f"{total:.6f}",
+        "billed_minutes": f"{billed_minutes:.6f}",
+        "estimated_cost_usd": f"{cost_usd:.6f}",
     }
 

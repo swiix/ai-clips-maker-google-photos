@@ -34,6 +34,8 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_transcription_model: str = "whisper-1"
+    # Estimated USD per minute for whisper-1 (verify on https://platform.openai.com/docs/pricing )
+    openai_whisper_usd_per_minute: float = 0.006
     # Optional: path to JSON with openai_api_key (default: {data_dir}/openai_credentials.json). Env: OPENAI_CREDENTIALS_JSON
     openai_credentials_json: Optional[Path] = None
 

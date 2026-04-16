@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from webapp import db as dbmod
@@ -144,11 +145,16 @@ def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
     )
 
     jobsmod._run_one_job(conn, settings, job_id)
-    out = conn.execute("SELECT status, phase, output_dir FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    out = conn.execute(
+        "SELECT status, phase, output_dir, outputs_created, openai_cost_usd FROM jobs WHERE id = ?",
+        (job_id,),
+    ).fetchone()
     conn.close()
     assert out["status"] == "done"
     assert out["phase"] == "done"
     assert out["output_dir"] == str(settings.output_dir)
+    assert int(out["outputs_created"] or 0) == 1
+    assert out["openai_cost_usd"] is None
 
 
 def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
@@ -180,12 +186,99 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("webapp.jobs._is_valid_cached_av", lambda *_a, **_k: True)
     monkeypatch.setattr(
         "webapp.openai_speech_trim.trim_video_to_openai_speech",
-        lambda *_a, **_k: {"video_path": str(tmp_path / "out" / "x.mp4")},
+        lambda *_a, **_k: {
+            "video_path": str(tmp_path / "out" / "x.mp4"),
+            "input_audio_seconds": "120.000000",
+            "estimated_cost_usd": "0.012000",
+        },
     )
 
     jobsmod._run_one_job(conn, settings, job_id)
-    out = conn.execute("SELECT status, phase, job_type FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    out = conn.execute(
+        "SELECT status, phase, job_type, outputs_created, openai_input_seconds, openai_cost_usd FROM jobs WHERE id = ?",
+        (job_id,),
+    ).fetchone()
     conn.close()
     assert out["status"] == "done"
     assert out["phase"] == "done"
     assert out["job_type"] == "openai_speech_trim"
+    assert int(out["outputs_created"] or 0) == 1
+    assert abs(float(out["openai_input_seconds"] or 0) - 120.0) < 1e-6
+    assert abs(float(out["openai_cost_usd"] or 0) - 0.012) < 1e-6
+
+
+def test_get_trim_statistics_groups_methods(tmp_path: Path):
+    conn = dbmod.connect(tmp_path / "stats.db")
+    dbmod.init_db(conn)
+    now = 1.0
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            media_item_id, job_type, status, phase, phase_message, progress,
+            trim_method_label, outputs_created, openai_cost_usd, openai_input_seconds,
+            created_at, updated_at
+        ) VALUES (?, ?, 'done', 'done', '', 1.0, ?, ?, ?, ?, ?, ?)
+        """,
+        ("m_openai", "openai_speech_trim", "openai_speech", 1, 0.006, 60.0, now, now),
+    )
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            media_item_id, job_type, status, phase, phase_message, progress,
+            trim_method_label, outputs_created, created_at, updated_at
+        ) VALUES (?, ?, 'done', 'done', '', 1.0, ?, ?, ?, ?)
+        """,
+        ("m_sil", "silence_remove", "silence_balanced", 2, now, now),
+    )
+    conn.commit()
+    stats = dbmod.get_trim_statistics(conn)
+    conn.close()
+    assert stats["totals"]["jobs_done"] == 2
+    assert stats["totals"]["outputs_created"] == 3
+    assert stats["totals"]["openai_cost_usd"] == pytest.approx(0.006)
+    assert stats["totals"]["openai_audio_minutes"] == pytest.approx(1.0)
+    by = {r["method_key"]: r for r in stats["by_method"]}
+    assert by["openai_speech"]["jobs_done"] == 1
+    assert by["silence_balanced"]["outputs_created"] == 2
+
+
+def test_api_stats_endpoint(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "app_stats.db"
+    conn = dbmod.connect(db_path)
+    dbmod.init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            media_item_id, job_type, status, phase, phase_message, progress,
+            trim_method_label, outputs_created, openai_cost_usd, openai_input_seconds,
+            created_at, updated_at
+        ) VALUES (?, ?, 'done', 'done', '', 1.0, 'openai_speech', 1, 0.01, 120.0, 0, 0)
+        """,
+        ("m1", "openai_speech_trim"),
+    )
+    conn.commit()
+    conn.close()
+
+    def fake_dep():
+        c = dbmod.connect(db_path)
+        dbmod.init_db(c)
+        try:
+            yield c
+        finally:
+            c.close()
+
+    app.dependency_overrides.clear()
+    from webapp.main import _db_dep
+
+    app.dependency_overrides[_db_dep] = fake_dep
+    try:
+        client = TestClient(app)
+        r = client.get("/api/stats")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["totals"]["jobs_done"] == 1
+        row = data["by_method"][0]
+        assert row["method_key"] == "openai_speech"
+        assert row["openai_usage_credits_usd"] == pytest.approx(0.01, rel=0, abs=1e-5)
+    finally:
+        app.dependency_overrides.clear()

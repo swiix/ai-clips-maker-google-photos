@@ -423,6 +423,69 @@ function trimMethodLabel(m) {
   return map[m] || m || "";
 }
 
+function formatUsdAmount(n) {
+  if (n == null || n === "" || Number.isNaN(Number(n))) return "—";
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(Number(n));
+}
+
+async function loadStats() {
+  const statusEl = $("#stats-status");
+  try {
+    const r = await fetch("/api/stats");
+    const data = await r.json();
+    const disc = $("#stats-disclaimer");
+    if (disc) {
+      const rate = data.openai_usd_per_minute_assumed;
+      const rateHint =
+        rate != null && !Number.isNaN(Number(rate))
+          ? ` Aktuell angenommen: ${formatUsdAmount(rate)} pro Minute Audio.`
+          : "";
+      disc.textContent = `${data.disclaimer_de || ""}${rateHint}`;
+    }
+    const tbody = $("#stats-body");
+    if (tbody) {
+      tbody.innerHTML = "";
+      for (const row of data.by_method || []) {
+        const isOpenai = row.method_key === "openai_speech";
+        const tr = document.createElement("tr");
+        const mins =
+          isOpenai && Number(row.openai_audio_minutes) > 0
+            ? Number(row.openai_audio_minutes).toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })
+            : isOpenai
+              ? "0,00"
+              : "—";
+        tr.innerHTML = `<td>${escapeHtml(row.label_de || row.method_key || "")}</td><td>${Number(
+          row.jobs_done || 0
+        )}</td><td>${Number(row.outputs_created || 0)}</td><td>${mins}</td><td>${
+          isOpenai ? formatUsdAmount(row.openai_cost_usd) : "—"
+        }</td><td>${isOpenai ? formatUsdAmount(row.openai_usage_credits_usd) : "—"}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+    const tot = $("#stats-totals");
+    if (tot) {
+      const t = data.totals || {};
+      const openaiUsd = formatUsdAmount(t.openai_cost_usd);
+      tot.innerHTML = `<strong>Gesamt (nur „done“):</strong> ${Number(
+        t.jobs_done || 0
+      )} Jobs · ${Number(t.outputs_created || 0)} Ausgaben/Clips. OpenAI geschätzt: ${openaiUsd} (Credits/Nutzung in USD: ${formatUsdAmount(
+        t.openai_usage_credits_usd
+      )}).`;
+    }
+    if (statusEl) statusEl.textContent = "Nur abgeschlossene Jobs (Status „done“).";
+  } catch {
+    if (statusEl) statusEl.textContent = "Statistik konnte nicht geladen werden.";
+  }
+}
+
 function parseJobOptionsSummary(optionsRaw) {
   try {
     const parsed = JSON.parse(optionsRaw || "{}");
@@ -910,6 +973,13 @@ document.querySelector('[data-tab="jobs"]').addEventListener("click", () => {
   startJobsPolling();
   loadJobs();
 });
+
+document.querySelector('[data-tab="stats"]').addEventListener("click", () => {
+  loadStats();
+});
+
+const refreshStats = $("#refresh-stats");
+if (refreshStats) refreshStats.addEventListener("click", () => loadStats());
 
 authStatus();
 loadJobs();
