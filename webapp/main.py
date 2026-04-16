@@ -1079,7 +1079,7 @@ def _build_gallery_entries(
         return []
     entries: list[dict[str, Any]] = []
     seen_video_rels: set[str] = set()
-    # Build gallery from jobs table as the single source of truth.
+    # Build gallery primarily from jobs table as source of truth.
     done_rows = conn.execute(
         """
         SELECT id, media_item_id, filename, creation_time, output_dir
@@ -1137,6 +1137,42 @@ def _build_gallery_entries(
                 "error": None,
             }
         )
+    if include_orphans:
+        # Legacy fallback: keep old clips visible even when they are no longer linked
+        # to a current jobs row (e.g. from older app versions/imports).
+        orphan_clips: list[dict[str, Any]] = []
+        all_mp4 = sorted(root.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for idx, target in enumerate(all_mp4, start=1):
+            try:
+                rel = target.resolve().relative_to(base)
+            except ValueError:
+                continue
+            rel_url = str(rel).replace("\\", "/")
+            if rel_url in seen_video_rels:
+                continue
+            seen_video_rels.add(rel_url)
+            orphan_clips.append(
+                {
+                    "index": idx,
+                    "begin_sec": 0,
+                    "finish_sec": 0,
+                    "video_url": f"/api/gallery/file/{rel_url}",
+                    "transcript_url": None,
+                }
+            )
+        if orphan_clips:
+            entries.append(
+                {
+                    "folder": "legacy_outputs",
+                    "source": {
+                        "filename": "Legacy Output Videos",
+                        "creationTime": None,
+                        "mediaItemId": None,
+                    },
+                    "clips": orphan_clips,
+                    "error": None,
+                }
+            )
     return entries
 
 
