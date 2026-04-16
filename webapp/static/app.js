@@ -12,6 +12,10 @@ const state = {
   latestJobRow: null,
 };
 const videoRetryCountById = new Map();
+const STORAGE_KEYS = {
+  cutMergeGapSec: "ai_clips_cut_merge_gap_sec",
+  cutMinDurationSec: "ai_clips_cut_min_duration_sec",
+};
 
 function $(sel) {
   return document.querySelector(sel);
@@ -24,6 +28,30 @@ function setTab(name) {
   document.querySelectorAll(".panel").forEach((p) => {
     p.classList.toggle("active", p.id === `panel-${name}`);
   });
+}
+
+function restoreCutTuningFromStorage() {
+  const gapInput = $("#openai-merge-gap-sec");
+  const minInput = $("#openai-min-segment-sec");
+  if (gapInput) {
+    const savedGap = window.localStorage.getItem(STORAGE_KEYS.cutMergeGapSec);
+    if (savedGap !== null && savedGap !== "") gapInput.value = savedGap;
+  }
+  if (minInput) {
+    const savedMin = window.localStorage.getItem(STORAGE_KEYS.cutMinDurationSec);
+    if (savedMin !== null && savedMin !== "") minInput.value = savedMin;
+  }
+}
+
+function persistCutTuningToStorage(gapSec, minDurationSec) {
+  try {
+    if (Number.isFinite(gapSec) && gapSec > 0) {
+      window.localStorage.setItem(STORAGE_KEYS.cutMergeGapSec, String(gapSec));
+    }
+    if (Number.isFinite(minDurationSec) && minDurationSec > 0) {
+      window.localStorage.setItem(STORAGE_KEYS.cutMinDurationSec, String(minDurationSec));
+    }
+  } catch (_) {}
 }
 
 function updateOpenAiTuningVisibility() {
@@ -783,6 +811,7 @@ $("#run-selected").addEventListener("click", async () => {
   const cutMergeGapSec = Number($("#openai-merge-gap-sec")?.value || 0.35);
   const cutMinDurationSec = Number($("#openai-min-segment-sec")?.value || 0.04);
   const noiseReductionEnabled = Boolean($("#noise-reduction-enabled")?.checked);
+  persistCutTuningToStorage(cutMergeGapSec, cutMinDurationSec);
 
   const selectedItems = Array.from(state.selected.values());
   const sourceItems = selectedItems.length ? selectedItems : visibleItems();
@@ -1110,4 +1139,5 @@ loadJobs();
 restoreLastPickerSession();
 startJobsPolling();
 startCachePolling();
+restoreCutTuningFromStorage();
 updateOpenAiTuningVisibility();
