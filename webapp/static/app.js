@@ -126,6 +126,16 @@ function itemFilename(it) {
   );
 }
 
+function itemCreationTime(it) {
+  return (
+    (it.mediaFile &&
+      it.mediaFile.mediaFileMetadata &&
+      it.mediaFile.mediaFileMetadata.creationTime) ||
+    it.creationTime ||
+    null
+  );
+}
+
 function itemProcessingStatus(it) {
   return (
     (it.mediaFile &&
@@ -470,6 +480,20 @@ function formatSeconds(v) {
 function formatPercent(v) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
   return `${Number(v).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function formatDateTime(value, fallbackEpochSeconds) {
+  const asDate = value
+    ? new Date(value)
+    : (fallbackEpochSeconds ? new Date(Number(fallbackEpochSeconds) * 1000) : null);
+  if (!asDate || Number.isNaN(asDate.getTime())) return "—";
+  return asDate.toLocaleString("de-DE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatRelativeFromEpoch(epochSeconds) {
@@ -856,7 +880,7 @@ $("#run-selected").addEventListener("click", async () => {
     baseUrl: itemBaseUrl(it),
     filename: itemFilename(it),
     productUrl: it.productUrl || null,
-    creationTime: null,
+    creationTime: itemCreationTime(it),
     processingStatus: itemProcessingStatus(it) || null,
   }));
   if (!items.length) {
@@ -968,6 +992,15 @@ async function loadJobs() {
 
   const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? Number.NEGATIVE_INFINITY : Number(v));
   rows.sort((a, b) => {
+    const createdMs = (row) => {
+      if (row.creation_time) {
+        const t = Date.parse(row.creation_time);
+        if (!Number.isNaN(t)) return t;
+      }
+      return Number(row.created_at || 0) * 1000;
+    };
+    if (sortKey === "created_desc") return createdMs(b) - createdMs(a);
+    if (sortKey === "created_asc") return createdMs(a) - createdMs(b);
     if (sortKey === "duration_desc") return num(b.cut_input_seconds) - num(a.cut_input_seconds);
     if (sortKey === "duration_asc") return num(a.cut_input_seconds) - num(b.cut_input_seconds);
     if (sortKey === "saved_sec_desc") return num(b.cut_saved_seconds) - num(a.cut_saved_seconds);
@@ -1018,7 +1051,8 @@ async function loadJobs() {
     const relUpdated = formatRelativeFromEpoch(row.updated_at);
     const durationCell = `<span title="${escapeHtml(relUpdated)}">${escapeHtml(formatSeconds(row.cut_input_seconds))}</span>`;
     const savedCell = `<span title="${escapeHtml(relUpdated)}">${escapeHtml(formatSeconds(row.cut_saved_seconds))}</span>`;
-    tr.innerHTML = `<td>${folderCell}</td><td>${durationCell}</td><td>${savedCell}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${row.id}</td><td title="${escapeHtml(
+    const createdCell = escapeHtml(formatDateTime(row.creation_time, row.created_at));
+    tr.innerHTML = `<td>${folderCell}</td><td>${durationCell}</td><td>${savedCell}</td><td>${escapeHtml(formatPercent(row.cut_saved_percent))}</td><td>${createdCell}</td><td>${row.id}</td><td title="${escapeHtml(
       row.media_item_id || ""
     )}">${escapeHtml((row.filename || row.media_item_id || "").slice(0, 40))}</td><td>${renderJobTypeBadge(jobType)}</td><td>${methodBlock}<div class="muted" style="font-size:0.72rem;margin-top:0.15rem">${escapeHtml(optionsSummary)}</div></td><td>${statusBadge}</td><td>${escapeHtml(phaseLabel)}</td><td>${escapeHtml(formatProgress(row.progress))}</td><td>${escapeHtml(
       row.error || ""
