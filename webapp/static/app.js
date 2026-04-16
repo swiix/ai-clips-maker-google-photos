@@ -10,12 +10,18 @@ const state = {
   cachePollTimer: null,
   jobsPollTimer: null,
   latestJobRow: null,
+  tinderClips: [],
+  tinderIndex: 0,
+  tinderLikes: new Map(),
+  tinderDownloaded: new Map(),
 };
 const videoRetryCountById = new Map();
 const STORAGE_KEYS = {
   cutMergeGapSec: "ai_clips_cut_merge_gap_sec",
   cutMinDurationSec: "ai_clips_cut_min_duration_sec",
   noiseReductionMode: "ai_clips_noise_reduction_mode",
+  tinderLikes: "ai_clips_tinder_likes",
+  tinderDownloaded: "ai_clips_tinder_downloaded",
 };
 
 function $(sel) {
@@ -29,6 +35,27 @@ function setTab(name) {
   document.querySelectorAll(".panel").forEach((p) => {
     p.classList.toggle("active", p.id === `panel-${name}`);
   });
+}
+
+function isTabActive(name) {
+  return document.querySelector(`.tab[data-tab="${name}"]`)?.classList.contains("active");
+}
+
+function readJsonStorage(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function saveJsonStorage(key, data) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(data));
+  } catch (_) {}
 }
 
 function restoreCutTuningFromStorage() {
@@ -1217,8 +1244,214 @@ async function loadGallery() {
   });
 }
 
+function loadTinderStateFromStorage() {
+  state.tinderLikes = new Map(Object.entries(readJsonStorage(STORAGE_KEYS.tinderLikes, {})));
+  state.tinderDownloaded = new Map(Object.entries(readJsonStorage(STORAGE_KEYS.tinderDownloaded, {})));
+}
+
+function persistTinderState() {
+  saveJsonStorage(STORAGE_KEYS.tinderLikes, Object.fromEntries(state.tinderLikes.entries()));
+  saveJsonStorage(STORAGE_KEYS.tinderDownloaded, Object.fromEntries(state.tinderDownloaded.entries()));
+}
+
+function flattenGalleryClips(entries) {
+  const clips = [];
+  for (const entry of entries || []) {
+    for (const clip of entry.clips || []) {
+      if (!clip.video_url) continue;
+      clips.push({
+        key: `${entry.folder || "folder"}::${clip.index || 0}::${clip.video_url}`,
+        folder: entry.folder || "",
+        sourceFilename: (entry.source && entry.source.filename) || "",
+        index: clip.index,
+        begin_sec: clip.begin_sec,
+        finish_sec: clip.finish_sec,
+        video_url: clip.video_url,
+        transcript_url: clip.transcript_url || null,
+      });
+    }
+  }
+  return clips;
+}
+
+function getCurrentTinderClip() {
+  if (!state.tinderClips.length) return null;
+  return state.tinderClips[state.tinderIndex] || null;
+}
+
+function markTinderLiked(clip) {
+  if (!clip) return;
+  state.tinderLikes.set(clip.key, {
+    key: clip.key,
+    folder: clip.folder,
+    sourceFilename: clip.sourceFilename,
+    index: clip.index,
+    begin_sec: clip.begin_sec,
+    finish_sec: clip.finish_sec,
+    video_url: clip.video_url,
+    liked_at: new Date().toISOString(),
+  });
+  persistTinderState();
+}
+
+function markTinderDownloaded(clip) {
+  if (!clip) return;
+  state.tinderDownloaded.set(clip.key, {
+    downloaded: true,
+    downloaded_at: new Date().toISOString(),
+  });
+  persistTinderState();
+}
+
+function triggerClipDownload(clip) {
+  if (!clip || !clip.video_url) return;
+  const a = document.createElement("a");
+  a.href = clip.video_url;
+  a.download = `${clip.folder || "clip"}_${clip.index || 0}.mp4`;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  markTinderDownloaded(clip);
+}
+
+function renderTinderLikesList() {
+  const root = $("#tinder-likes-list");
+  if (!root) return;
+  const likes = Array.from(state.tinderLikes.values()).sort((a, b) => String(b.liked_at || "").localeCompare(String(a.liked_at || "")));
+  if (!likes.length) {
+    root.innerHTML = `<p class="muted">Noch keine Likes.</p>`;
+    return;
+  }
+  root.innerHTML = "";
+  for (const like of likes) {
+    const downloaded = Boolean(state.tinderDownloaded.get(like.key)?.downloaded);
+    const row = document.createElement("div");
+    row.className = "tinder-like-item";
+    row.innerHTML = `<div><strong>#${escapeHtml(String(like.index || 0))}</strong> ${escapeHtml(like.sourceFilename || like.folder || "")}</div>
+      <div class="muted">${escapeHtml(formatSeconds(like.begin_sec))}s - ${escapeHtml(formatSeconds(like.finish_sec))}s</div>
+      <div class="tinder-like-actions">
+        <span class="tinder-download-state ${downloaded ? "done" : "todo"}">${downloaded ? "Downloaded" : "Offen"}</span>
+        <button type="button" class="btn" data-tinder-download-key="${escapeHtml(like.key)}">Download</button>
+      </div>`;
+    root.appendChild(row);
+  }
+  root.querySelectorAll("button[data-tinder-download-key]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.getAttribute("data-tinder-download-key");
+      const clip = state.tinderLikes.get(key);
+      if (!clip) return;
+      triggerClipDownload(clip);
+      renderTinderLikesList();
+      updateTinderStatus();
+    });
+  });
+}
+
+function updateTinderStatus() {
+  const el = $("#tinder-status");
+  if (!el) return;
+  const total = state.tinderClips.length;
+  const idx = total > 0 ? state.tinderIndex + 1 : 0;
+  const likes = state.tinderLikes.size;
+  let downloadedLikes = 0;
+  for (const key of state.tinderLikes.keys()) {
+    if (state.tinderDownloaded.get(key)?.downloaded) downloadedLikes += 1;
+  }
+  el.textContent = `${idx}/${total} Clips · Likes: ${likes} · Downloads: ${downloadedLikes}/${likes}`;
+}
+
+function renderTinderCard() {
+  const root = $("#tinder-card");
+  if (!root) return;
+  const clip = getCurrentTinderClip();
+  if (!clip) {
+    root.innerHTML = `<div class="tinder-empty">Keine Clips gefunden.</div>`;
+    updateTinderStatus();
+    renderTinderLikesList();
+    return;
+  }
+  root.innerHTML = `<div class="tinder-chip">Clip #${escapeHtml(String(clip.index || 0))}</div>
+    <video class="tinder-video" src="${escapeHtml(clip.video_url)}" controls playsinline autoplay loop></video>
+    <div class="tinder-meta">
+      <div class="tinder-title">${escapeHtml(clip.sourceFilename || clip.folder || "Clip")}</div>
+      <div class="muted">${escapeHtml(formatSeconds(clip.begin_sec))}s - ${escapeHtml(formatSeconds(clip.finish_sec))}s</div>
+    </div>`;
+  updateTinderStatus();
+  renderTinderLikesList();
+}
+
+function tinderNext() {
+  if (!state.tinderClips.length) return;
+  state.tinderIndex = (state.tinderIndex + 1) % state.tinderClips.length;
+  renderTinderCard();
+}
+
+function tinderDislike() {
+  tinderNext();
+}
+
+function tinderLike() {
+  const clip = getCurrentTinderClip();
+  if (!clip) return;
+  markTinderLiked(clip);
+  tinderNext();
+}
+
+function downloadAllLikedClips() {
+  const likes = Array.from(state.tinderLikes.values());
+  if (!likes.length) {
+    alert("Noch keine Likes vorhanden.");
+    return;
+  }
+  const notDownloaded = likes.filter((clip) => !state.tinderDownloaded.get(clip.key)?.downloaded);
+  let batch = notDownloaded;
+  if (!notDownloaded.length) {
+    const repeat = window.confirm("Alle gelikten Clips wurden bereits geladen. Nochmal alle herunterladen?");
+    if (!repeat) return;
+    batch = likes;
+  }
+  for (const clip of batch) triggerClipDownload(clip);
+  renderTinderLikesList();
+  updateTinderStatus();
+}
+
+function exportTinderLikes() {
+  const likes = Array.from(state.tinderLikes.values());
+  const payload = {
+    exported_at: new Date().toISOString(),
+    count: likes.length,
+    likes,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "tinderwatch-likes.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function loadTinderWatch() {
+  try {
+    const r = await fetch("/api/gallery");
+    const data = await r.json();
+    state.tinderClips = flattenGalleryClips(data);
+    if (state.tinderIndex >= state.tinderClips.length) state.tinderIndex = 0;
+    renderTinderCard();
+  } catch (_) {
+    const root = $("#tinder-card");
+    if (root) root.innerHTML = `<div class="tinder-empty">Fehler beim Laden der Clips.</div>`;
+  }
+}
+
 document.querySelector('[data-tab="gallery"]').addEventListener("click", () => {
   loadGallery();
+});
+document.querySelector('[data-tab="tinderwatch"]').addEventListener("click", () => {
+  loadTinderWatch();
 });
 
 document.querySelector('[data-tab="jobs"]').addEventListener("click", () => {
@@ -1238,6 +1471,28 @@ if (refreshStats) refreshStats.addEventListener("click", () => loadStats());
 const refreshCuts = $("#refresh-cuts");
 if (refreshCuts) refreshCuts.addEventListener("click", () => loadCutsView());
 
+const tinderRefresh = $("#tinder-refresh");
+if (tinderRefresh) tinderRefresh.addEventListener("click", () => loadTinderWatch());
+const tinderLikeBtn = $("#tinder-like");
+if (tinderLikeBtn) tinderLikeBtn.addEventListener("click", () => tinderLike());
+const tinderDislikeBtn = $("#tinder-dislike");
+if (tinderDislikeBtn) tinderDislikeBtn.addEventListener("click", () => tinderDislike());
+const tinderDownloadAllBtn = $("#tinder-download-all");
+if (tinderDownloadAllBtn) tinderDownloadAllBtn.addEventListener("click", () => downloadAllLikedClips());
+const tinderExportLikesBtn = $("#tinder-export-likes");
+if (tinderExportLikesBtn) tinderExportLikesBtn.addEventListener("click", () => exportTinderLikes());
+
+document.addEventListener("keydown", (ev) => {
+  if (!isTabActive("tinderwatch")) return;
+  if (ev.key === "ArrowLeft") {
+    ev.preventDefault();
+    tinderDislike();
+  } else if (ev.key === "ArrowRight") {
+    ev.preventDefault();
+    tinderLike();
+  }
+});
+
 authStatus();
 loadJobs();
 restoreLastPickerSession();
@@ -1245,3 +1500,4 @@ startJobsPolling();
 startCachePolling();
 restoreCutTuningFromStorage();
 updateOpenAiTuningVisibility();
+loadTinderStateFromStorage();

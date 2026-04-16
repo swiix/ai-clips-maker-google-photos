@@ -12,6 +12,7 @@
     <nav class="tabs">
       <button type="button" data-tab="sources" class="tab active">Quellen</button>
       <button type="button" data-tab="gallery" class="tab">Galerie</button>
+      <button type="button" data-tab="tinderwatch" class="tab">TinderWatch</button>
       <button type="button" data-tab="jobs" class="tab">Jobs</button>
       <button type="button" data-tab="stats" class="tab">Statistik</button>
       <button type="button" data-tab="cuts" class="tab">Schnitt-Analyse</button>
@@ -77,6 +78,29 @@
     <section id="panel-gallery" class="panel">
       <p class="muted">Lokale Ausgabe unter <code>outputs/</code> — jedes Projekt mit <code>source.json</code> und Clips.</p>
       <div id="gallery-root"></div>
+    </section>
+
+    <section id="panel-tinderwatch" class="panel">
+      <div class="tinder-toolbar">
+        <button type="button" id="tinder-refresh" class="btn">Clips neu laden</button>
+        <button type="button" id="tinder-download-all" class="btn primary">Alle Downloads</button>
+        <button type="button" id="tinder-export-likes" class="btn">Like-Liste herunterladen</button>
+      </div>
+      <p id="tinder-status" class="muted">Lade Clips…</p>
+      <div class="tinder-layout">
+        <div class="tinder-stage">
+          <div id="tinder-card" class="tinder-card"></div>
+          <div class="tinder-actions">
+            <button type="button" id="tinder-dislike" class="btn tinder-btn tinder-btn-dislike">◀ Skip</button>
+            <button type="button" id="tinder-like" class="btn tinder-btn tinder-btn-like">Like ▶</button>
+          </div>
+          <p class="muted">Tastatur: Pfeil links = Skip, Pfeil rechts = Like</p>
+        </div>
+        <aside class="tinder-likes">
+          <h3>Like-Liste</h3>
+          <div id="tinder-likes-list"></div>
+        </aside>
+      </div>
     </section>
 
     <section id="panel-jobs" class="panel">

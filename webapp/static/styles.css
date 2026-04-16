@@ -702,3 +702,149 @@ code {
   margin-top: 0.12rem;
   font-size: 0.95rem;
 }
+
+.tinder-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.tinder-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 1fr) minmax(260px, 360px);
+  gap: 1rem;
+  align-items: start;
+}
+
+.tinder-stage {
+  background: radial-gradient(circle at top right, rgba(255, 92, 140, 0.24), rgba(55, 25, 80, 0.25));
+  border: 1px solid rgba(255, 99, 149, 0.35);
+  border-radius: 16px;
+  padding: 0.8rem;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+.tinder-card {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 159, 193, 0.35);
+  background: #120f1b;
+  min-height: 360px;
+}
+
+.tinder-chip {
+  position: absolute;
+  z-index: 2;
+  top: 0.65rem;
+  left: 0.65rem;
+  background: rgba(255, 62, 121, 0.88);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.tinder-video {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: contain;
+  background: #000;
+}
+
+.tinder-meta {
+  padding: 0.6rem 0.7rem;
+  background: linear-gradient(180deg, rgba(20, 14, 32, 0.3), rgba(20, 14, 32, 0.95));
+}
+
+.tinder-title {
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.tinder-actions {
+  display: flex;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.tinder-btn {
+  flex: 1;
+  border-width: 2px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.tinder-btn-dislike {
+  border-color: rgba(111, 194, 255, 0.65);
+  color: #b8e8ff;
+  background: rgba(44, 98, 132, 0.3);
+}
+
+.tinder-btn-like {
+  border-color: rgba(255, 126, 170, 0.72);
+  color: #ffd2e7;
+  background: rgba(170, 55, 102, 0.35);
+}
+
+.tinder-likes {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: rgba(23, 26, 33, 0.92);
+  max-height: 74vh;
+  overflow: auto;
+}
+
+.tinder-likes h3 {
+  margin: 0 0 0.55rem;
+}
+
+.tinder-like-item {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.5rem;
+  margin-bottom: 0.45rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tinder-like-actions {
+  margin-top: 0.35rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tinder-download-state {
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
+
+.tinder-download-state.done {
+  color: #a9f1cb;
+  background: rgba(48, 136, 92, 0.25);
+}
+
+.tinder-download-state.todo {
+  color: #ffe6a7;
+  background: rgba(164, 122, 32, 0.24);
+}
+
+.tinder-empty {
+  min-height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+@media (max-width: 980px) {
+  .tinder-layout {
+    grid-template-columns: 1fr;
+  }
+}
