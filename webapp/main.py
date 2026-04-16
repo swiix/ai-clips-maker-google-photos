@@ -149,7 +149,7 @@ async def lifespan(app: FastAPI):
     jobsmod.stop_worker()
 
 
-app = FastAPI(title="ai-clips-maker Google Photos", lifespan=lifespan)
+app = FastAPI(title="Meta Glasses AI Magic Clips Google Photos", lifespan=lifespan)
 
 static_dir = Path(__file__).resolve().parent / "static"
 if static_dir.is_dir():
