@@ -1079,42 +1079,7 @@ def _build_gallery_entries(
         return []
     entries: list[dict[str, Any]] = []
     seen_video_rels: set[str] = set()
-    manifests = sorted(root.glob("job_manifest*.json"))
-    for man_path in manifests:
-        man = json.loads(man_path.read_text(encoding="utf-8"))
-        stem = man_path.stem
-        suffix = stem.replace("job_manifest", "", 1)
-        src_path = root / f"source{suffix}.json"
-
-        meta = {}
-        if src_path.is_file():
-            meta = json.loads(src_path.read_text(encoding="utf-8"))
-
-        clips_out: list[dict[str, Any]] = []
-        for c in man.get("clips") or []:
-            vr = c.get("video_relpath")
-            tr = c.get("transcript_relpath")
-            if vr:
-                seen_video_rels.add(str(vr).replace("\\", "/"))
-            clips_out.append(
-                {
-                    **c,
-                    "video_url": f"/api/gallery/file/{vr}" if vr else None,
-                    "transcript_url": f"/api/gallery/file/{tr}" if tr else None,
-                }
-            )
-
-        entries.append(
-            {
-                "folder": suffix.lstrip("_") or "default",
-                "source": meta,
-                "clips": clips_out,
-                "error": man.get("error"),
-            }
-        )
-
-    # Include all finished job outputs as video items, even when no job_manifest exists
-    # (e.g. silence/openai output files that are generated directly as MP4).
+    # Build gallery from jobs table as the single source of truth.
     done_rows = conn.execute(
         """
         SELECT id, media_item_id, filename, creation_time, output_dir
@@ -1172,44 +1137,6 @@ def _build_gallery_entries(
                 "error": None,
             }
         )
-
-    if include_orphans:
-        # Final fallback: include any MP4 files in output root/subfolders that were not
-        # covered by manifests or done-job based discovery. This ensures old outputs are
-        # still visible in TinderWatch for review.
-        orphan_clips: list[dict[str, Any]] = []
-        all_mp4 = sorted(root.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
-        for idx, target in enumerate(all_mp4, start=1):
-            try:
-                rel = target.resolve().relative_to(base)
-            except ValueError:
-                continue
-            rel_url = str(rel).replace("\\", "/")
-            if rel_url in seen_video_rels:
-                continue
-            seen_video_rels.add(rel_url)
-            orphan_clips.append(
-                {
-                    "index": idx,
-                    "begin_sec": 0,
-                    "finish_sec": 0,
-                    "video_url": f"/api/gallery/file/{rel_url}",
-                    "transcript_url": None,
-                }
-            )
-        if orphan_clips:
-            entries.append(
-                {
-                    "folder": "legacy_outputs",
-                    "source": {
-                        "filename": "Legacy Output Videos",
-                        "creationTime": None,
-                        "mediaItemId": None,
-                    },
-                    "clips": orphan_clips,
-                    "error": None,
-                }
-            )
     return entries
 
 
