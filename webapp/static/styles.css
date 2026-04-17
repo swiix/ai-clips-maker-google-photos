@@ -903,6 +903,13 @@ code {
   box-shadow: 0 10px 28px rgba(79, 224, 180, 0.27);
 }
 
+.tinder-btn-back {
+  border-color: rgba(162, 186, 255, 0.72);
+  color: #5f7dff;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 28px rgba(108, 136, 255, 0.24);
+}
+
 .tinder-likes {
   border: 1px solid rgba(255, 162, 194, 0.28);
   border-radius: 18px;

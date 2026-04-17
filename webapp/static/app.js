@@ -2172,6 +2172,17 @@ function tinderNext() {
   renderTinderCard();
 }
 
+function tinderPrev() {
+  pruneReviewedFromCurrentClips();
+  if (!state.tinderClips.length) {
+    renderTinderCard();
+    return;
+  }
+  const total = state.tinderClips.length;
+  state.tinderIndex = ((state.tinderIndex - 1) % total + total) % total;
+  renderTinderCard();
+}
+
 function tinderDislike() {
   const clip = getCurrentTinderClip();
   if (clip) markTinderDecision(clip, "dislike");
@@ -2290,6 +2301,8 @@ if (refreshCuts) refreshCuts.addEventListener("click", () => loadCutsView());
 
 const tinderRefresh = $("#tinder-refresh");
 if (tinderRefresh) tinderRefresh.addEventListener("click", () => loadTinderWatch(true));
+const tinderBackBtn = $("#tinder-back");
+if (tinderBackBtn) tinderBackBtn.addEventListener("click", () => tinderPrev());
 const tinderLikeBtn = $("#tinder-like");
 if (tinderLikeBtn) tinderLikeBtn.addEventListener("click", () => tinderLike());
 const tinderDislikeBtn = $("#tinder-dislike");
@@ -2319,6 +2332,9 @@ document.addEventListener("keydown", (ev) => {
   } else if (ev.key === "ArrowRight") {
     ev.preventDefault();
     tinderLike();
+  } else if (ev.key === "ArrowDown") {
+    ev.preventDefault();
+    tinderPrev();
   }
 });
 
