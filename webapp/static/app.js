@@ -9,8 +9,10 @@ const state = {
   cacheProgressById: new Map(),
   cachePollTimer: null,
   jobsPollTimer: null,
+  transcriptionPollTimer: null,
   latestJobRow: null,
   tinderClips: [],
+  tinderAllClips: [],
   tinderIndex: 0,
   tinderLikes: new Map(),
   tinderDownloaded: new Map(),
@@ -25,6 +27,9 @@ const STORAGE_KEYS = {
   noiseReductionMode: "ai_clips_noise_reduction_mode",
   trimMethod: "ai_clips_trim_method",
   visibleTrimModes: "ai_clips_visible_trim_modes",
+  tinderSort: "ai_clips_tinder_sort",
+  tinderMinSavedSec: "ai_clips_tinder_min_saved_sec",
+  tinderMinSavedPct: "ai_clips_tinder_min_saved_pct",
   tinderLikes: "ai_clips_tinder_likes",
   tinderDownloaded: "ai_clips_tinder_downloaded",
   tinderDecisions: "ai_clips_tinder_decisions",
@@ -108,6 +113,24 @@ function setTinderwatchBadge(count) {
   const n = Math.max(0, Number(count) || 0);
   badge.textContent = String(n);
   badge.classList.toggle("hidden", n <= 0);
+}
+
+function restoreTinderQueueSettings() {
+  const sort = (window.localStorage.getItem(STORAGE_KEYS.tinderSort) || "updated_desc").toLowerCase();
+  const sortSelect = $("#tinder-sort");
+  if (sortSelect) sortSelect.value = sort;
+  const minSec = window.localStorage.getItem(STORAGE_KEYS.tinderMinSavedSec);
+  const minPct = window.localStorage.getItem(STORAGE_KEYS.tinderMinSavedPct);
+  if ($("#tinder-min-saved-sec") && minSec !== null) $("#tinder-min-saved-sec").value = minSec;
+  if ($("#tinder-min-saved-pct") && minPct !== null) $("#tinder-min-saved-pct").value = minPct;
+}
+
+function persistTinderQueueSettings() {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.tinderSort, ($("#tinder-sort")?.value || "updated_desc").toLowerCase());
+    window.localStorage.setItem(STORAGE_KEYS.tinderMinSavedSec, $("#tinder-min-saved-sec")?.value || "");
+    window.localStorage.setItem(STORAGE_KEYS.tinderMinSavedPct, $("#tinder-min-saved-pct")?.value || "");
+  } catch (_) {}
 }
 
 function computeUnseenFromClips(clips) {
@@ -1650,6 +1673,10 @@ async function retryFailedCachedJobs() {
 $("#copy-latest-job").addEventListener("click", copyLatestJob);
 const retryFailedCachedBtn = $("#retry-failed-cached-jobs");
 if (retryFailedCachedBtn) retryFailedCachedBtn.addEventListener("click", retryFailedCachedJobs);
+const transcriptionUploadBtn = $("#transcription-upload");
+if (transcriptionUploadBtn) transcriptionUploadBtn.addEventListener("click", uploadTranscriptionFile);
+const transcriptionRefreshBtn = $("#transcription-refresh");
+if (transcriptionRefreshBtn) transcriptionRefreshBtn.addEventListener("click", loadTranscriptionJobs);
 
 function startJobsPolling() {
   if (state.jobsPollTimer) return;
@@ -1664,6 +1691,72 @@ function stopJobsPolling() {
   if (!state.jobsPollTimer) return;
   clearInterval(state.jobsPollTimer);
   state.jobsPollTimer = null;
+}
+
+async function loadTranscriptionJobs() {
+  const statusEl = $("#transcription-status");
+  const body = $("#transcription-body");
+  if (!body) return;
+  try {
+    const r = await fetch("/api/transcriptions");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const rows = await r.json();
+    body.innerHTML = "";
+    for (const row of rows || []) {
+      const tr = document.createElement("tr");
+      const progress = formatProgress(row.progress);
+      const duration = row.duration_seconds == null ? "—" : formatSeconds(row.duration_seconds);
+      const action = row.status === "done"
+        ? `<a class="btn" href="/api/transcriptions/${row.id}/text" target="_blank" rel="noopener">TXT</a>`
+        : "";
+      tr.innerHTML = `<td>${row.id}</td><td>${escapeHtml(row.filename || "")}</td><td>${escapeHtml(row.model || "")}</td><td>${escapeHtml(row.language || "auto")}</td><td>${escapeHtml(row.status || "")}</td><td>${escapeHtml(row.phase || "")}</td><td>${escapeHtml(progress || "")}</td><td>${escapeHtml(duration)}</td><td>${action}</td><td>${escapeHtml(row.error || "")}</td>`;
+      body.appendChild(tr);
+    }
+    if (statusEl) statusEl.textContent = `${rows.length || 0} Transkriptionsjobs geladen.`;
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Transkriptionsjobs konnten nicht geladen werden: ${err.message || err}`;
+  }
+}
+
+async function uploadTranscriptionFile() {
+  const statusEl = $("#transcription-status");
+  const fileInput = $("#transcription-file");
+  const modelInput = $("#transcription-model");
+  const languageInput = $("#transcription-language");
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    if (statusEl) statusEl.textContent = "Bitte zuerst eine Audio-/Video-Datei auswählen.";
+    return;
+  }
+  const model = (modelInput?.value || "whisper-1").trim();
+  const language = (languageInput?.value || "").trim();
+  const form = new FormData();
+  form.append("file", file);
+  const url = new URL("/api/transcriptions/upload", window.location.origin);
+  url.searchParams.set("model", model);
+  if (language) url.searchParams.set("language", language);
+  if (statusEl) statusEl.textContent = "Upload läuft, Transkriptionsjob wird erstellt…";
+  try {
+    const r = await fetch(url.toString(), { method: "POST", body: form });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+    const data = await r.json();
+    if (statusEl) statusEl.textContent = `Transkriptionsjob #${data.job_id} gestartet.`;
+    if (fileInput) fileInput.value = "";
+    await loadTranscriptionJobs();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Upload fehlgeschlagen: ${err.message || err}`;
+  }
+}
+
+function startTranscriptionPolling() {
+  if (state.transcriptionPollTimer) return;
+  state.transcriptionPollTimer = setInterval(() => {
+    if (!isTabActive("transcription")) return;
+    loadTranscriptionJobs().catch(() => {});
+  }, 3000);
 }
 
 async function loadGallery() {
@@ -1919,6 +2012,17 @@ function getClipDurations(clip) {
   return null;
 }
 
+function computeClipCutMetrics(clip) {
+  const parsed = getClipDurations(clip);
+  const before = Number(clip.cutInputSeconds ?? parsed?.before ?? 0);
+  const after = Number(clip.cutOutputSeconds ?? parsed?.after ?? 0);
+  const safeBefore = Number.isFinite(before) ? before : 0;
+  const safeAfter = Number.isFinite(after) ? after : 0;
+  const savedSec = Math.max(0, safeBefore - safeAfter);
+  const savedPct = safeBefore > 0 ? (savedSec / safeBefore) * 100 : 0;
+  return { before: safeBefore, after: safeAfter, savedSec, savedPct };
+}
+
 function flattenGalleryClips(entries) {
   const clips = [];
   for (const entry of entries || []) {
@@ -1933,6 +2037,11 @@ function flattenGalleryClips(entries) {
           (entry.source && (entry.source.mediaItemId || entry.source.media_item_id)) || null,
         folder: entry.folder || "",
         sourceFilename: (entry.source && entry.source.filename) || "",
+        creationTime: (entry.source && entry.source.creationTime) || null,
+        createdAt: (entry.source && entry.source.createdAt) || null,
+        updatedAt: (entry.source && entry.source.updatedAt) || null,
+        cutInputSeconds: (entry.source && entry.source.cutInputSeconds) || null,
+        cutOutputSeconds: (entry.source && entry.source.cutOutputSeconds) || null,
         trimMode:
           (entry.source && (entry.source.jobType || entry.source.trimMode)) ||
           detectTrimMode(entry.folder, (entry.source && entry.source.filename) || "", clip.video_url || ""),
@@ -1961,8 +2070,57 @@ function filterUnreviewedClips(clips) {
   return (clips || []).filter((clip) => !isReviewedDecision(state.tinderDecisions.get(clip.key)?.decision));
 }
 
+function applyTinderQueueFromAllClips() {
+  const currentKey = getCurrentTinderClip()?.key || null;
+  const sortKey = ($("#tinder-sort")?.value || "updated_desc").toLowerCase();
+  const minSavedSec = Number($("#tinder-min-saved-sec")?.value || "");
+  const minSavedPct = Number($("#tinder-min-saved-pct")?.value || "");
+  let rows = Array.from(state.tinderAllClips || []);
+  rows = rows.filter((clip) => {
+    const m = computeClipCutMetrics(clip);
+    if (!Number.isNaN(minSavedSec) && $("#tinder-min-saved-sec")?.value !== "" && m.savedSec < minSavedSec) return false;
+    if (!Number.isNaN(minSavedPct) && $("#tinder-min-saved-pct")?.value !== "" && m.savedPct < minSavedPct) return false;
+    return true;
+  });
+  const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? Number.NEGATIVE_INFINITY : Number(v));
+  rows.sort((a, b) => {
+    const createdMs = (row) => {
+      if (row.creationTime) {
+        const t = Date.parse(row.creationTime);
+        if (!Number.isNaN(t)) return t;
+      }
+      return Number(row.createdAt || 0) * 1000;
+    };
+    const updatedNum = (row) => Number(row.updatedAt || 0);
+    const aM = computeClipCutMetrics(a);
+    const bM = computeClipCutMetrics(b);
+    if (sortKey === "created_desc") return createdMs(b) - createdMs(a);
+    if (sortKey === "created_asc") return createdMs(a) - createdMs(b);
+    if (sortKey === "duration_desc") return num(bM.before) - num(aM.before);
+    if (sortKey === "duration_asc") return num(aM.before) - num(bM.before);
+    if (sortKey === "saved_sec_desc") return num(bM.savedSec) - num(aM.savedSec);
+    if (sortKey === "saved_sec_asc") return num(aM.savedSec) - num(bM.savedSec);
+    if (sortKey === "saved_pct_desc") return num(bM.savedPct) - num(aM.savedPct);
+    if (sortKey === "saved_pct_asc") return num(aM.savedPct) - num(bM.savedPct);
+    if (sortKey === "updated_asc") return updatedNum(a) - updatedNum(b);
+    return updatedNum(b) - updatedNum(a);
+  });
+  state.tinderClips = filterUnreviewedClips(rows);
+  if (!state.tinderClips.length) {
+    state.tinderIndex = 0;
+  } else if (currentKey) {
+    const idx = state.tinderClips.findIndex((c) => c.key === currentKey);
+    state.tinderIndex = idx >= 0 ? idx : Math.min(state.tinderIndex, state.tinderClips.length - 1);
+  } else if (state.tinderIndex >= state.tinderClips.length) {
+    state.tinderIndex = 0;
+  }
+  setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
+  renderTinderCard();
+}
+
 function pruneReviewedFromCurrentClips() {
   const currentKey = getCurrentTinderClip()?.key || null;
+  state.tinderAllClips = filterUnreviewedClips(state.tinderAllClips);
   state.tinderClips = filterUnreviewedClips(state.tinderClips);
   if (!state.tinderClips.length) {
     state.tinderIndex = 0;
@@ -2340,10 +2498,8 @@ async function loadTinderWatch(forceFresh = false) {
     const quickUrl = `/api/gallery?include_orphans=1&use_cache=${forceFresh ? 0 : 1}&max_clips=20`;
     const quickResponse = await fetch(quickUrl);
     const quickData = await quickResponse.json();
-    state.tinderClips = filterUnreviewedClips(flattenGalleryClips(quickData));
-    if (state.tinderIndex >= state.tinderClips.length) state.tinderIndex = 0;
-    setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
-    renderTinderCard();
+    state.tinderAllClips = flattenGalleryClips(quickData);
+    applyTinderQueueFromAllClips();
 
     // Then hydrate full list in background without blocking first video.
     const fullUrl = `/api/gallery?include_orphans=1&use_cache=${forceFresh ? 0 : 1}`;
@@ -2352,17 +2508,14 @@ async function loadTinderWatch(forceFresh = false) {
       .then((fullData) => {
         const current = getCurrentTinderClip();
         const currentKey = current?.key || null;
-        const allClips = filterUnreviewedClips(flattenGalleryClips(fullData));
+        const allClips = flattenGalleryClips(fullData);
         if (!allClips.length) return;
-        state.tinderClips = allClips;
+        state.tinderAllClips = allClips;
         if (currentKey) {
-          const idx = state.tinderClips.findIndex((c) => c.key === currentKey);
+          const idx = state.tinderAllClips.findIndex((c) => c.key === currentKey);
           state.tinderIndex = idx >= 0 ? idx : 0;
-        } else if (state.tinderIndex >= state.tinderClips.length) {
-          state.tinderIndex = 0;
         }
-        setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
-        updateTinderStatus();
+        applyTinderQueueFromAllClips();
       })
       .catch(() => {});
   } catch (_) {
@@ -2381,6 +2534,10 @@ document.querySelector('[data-tab="tinderwatch"]').addEventListener("click", () 
 document.querySelector('[data-tab="jobs"]').addEventListener("click", () => {
   startJobsPolling();
   loadJobs();
+});
+document.querySelector('[data-tab="transcription"]').addEventListener("click", () => {
+  startTranscriptionPolling();
+  loadTranscriptionJobs();
 });
 
 document.querySelector('[data-tab="stats"]').addEventListener("click", () => {
@@ -2401,6 +2558,27 @@ if (refreshCuts) refreshCuts.addEventListener("click", () => loadCutsView());
 
 const tinderRefresh = $("#tinder-refresh");
 if (tinderRefresh) tinderRefresh.addEventListener("click", () => loadTinderWatch(true));
+const tinderSort = $("#tinder-sort");
+if (tinderSort) {
+  tinderSort.addEventListener("change", () => {
+    persistTinderQueueSettings();
+    applyTinderQueueFromAllClips();
+  });
+}
+const tinderMinSavedSec = $("#tinder-min-saved-sec");
+if (tinderMinSavedSec) {
+  tinderMinSavedSec.addEventListener("input", () => {
+    persistTinderQueueSettings();
+    applyTinderQueueFromAllClips();
+  });
+}
+const tinderMinSavedPct = $("#tinder-min-saved-pct");
+if (tinderMinSavedPct) {
+  tinderMinSavedPct.addEventListener("input", () => {
+    persistTinderQueueSettings();
+    applyTinderQueueFromAllClips();
+  });
+}
 const tinderBackBtn = $("#tinder-back");
 if (tinderBackBtn) tinderBackBtn.addEventListener("click", () => tinderPrev());
 const tinderLikeBtn = $("#tinder-like");
@@ -2444,6 +2622,7 @@ loadJobs();
 restoreLastPickerSession();
 startJobsPolling();
 startCachePolling();
+restoreTinderQueueSettings();
 applyVisibleTrimModesToDropdown();
 restoreCutTuningFromStorage();
 updateOpenAiTuningVisibility();

@@ -60,10 +60,28 @@ def init_db(conn: sqlite3.Connection) -> None:
             updated_at REAL
         );
 
+        CREATE TABLE IF NOT EXISTS transcription_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            input_path TEXT NOT NULL,
+            output_txt_path TEXT,
+            model TEXT NOT NULL,
+            language TEXT,
+            status TEXT NOT NULL,
+            phase TEXT,
+            progress REAL,
+            duration_seconds REAL,
+            error TEXT,
+            created_at REAL,
+            updated_at REAL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
         CREATE INDEX IF NOT EXISTS idx_tinder_reviews_job_id ON tinder_reviews(job_id);
         CREATE INDEX IF NOT EXISTS idx_tinder_reviews_media_item_id ON tinder_reviews(media_item_id);
         CREATE INDEX IF NOT EXISTS idx_tinder_reviews_updated_at ON tinder_reviews(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_transcription_jobs_status ON transcription_jobs(status);
+        CREATE INDEX IF NOT EXISTS idx_transcription_jobs_updated_at ON transcription_jobs(updated_at);
         """
     )
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)").fetchall()}
@@ -95,6 +113,108 @@ def init_db(conn: sqlite3.Connection) -> None:
     if "media_item_id" not in tinder_cols:
         conn.execute("ALTER TABLE tinder_reviews ADD COLUMN media_item_id TEXT")
     conn.commit()
+
+
+def create_transcription_job(
+    conn: sqlite3.Connection,
+    *,
+    filename: str,
+    input_path: str,
+    model: str,
+    language: str | None = None,
+) -> int:
+    now = time.time()
+    with _lock:
+        conn.execute(
+            """
+            INSERT INTO transcription_jobs (
+                filename, input_path, output_txt_path, model, language,
+                status, phase, progress, duration_seconds, error, created_at, updated_at
+            ) VALUES (?, ?, NULL, ?, ?, 'queued', 'queued', 0.0, NULL, NULL, ?, ?)
+            """,
+            (
+                filename,
+                input_path,
+                model,
+                language,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT last_insert_rowid()").fetchone()
+    return int(row[0])
+
+
+def update_transcription_job(
+    conn: sqlite3.Connection,
+    job_id: int,
+    *,
+    status: str | None = None,
+    phase: str | None = None,
+    progress: float | None = None,
+    duration_seconds: float | None = None,
+    error: str | None = None,
+    output_txt_path: str | None = None,
+) -> None:
+    now = time.time()
+    with _lock:
+        conn.execute(
+            """
+            UPDATE transcription_jobs
+            SET
+                status = COALESCE(?, status),
+                phase = COALESCE(?, phase),
+                progress = COALESCE(?, progress),
+                duration_seconds = COALESCE(?, duration_seconds),
+                error = ?,
+                output_txt_path = COALESCE(?, output_txt_path),
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                status,
+                phase,
+                progress,
+                duration_seconds,
+                error,
+                output_txt_path,
+                now,
+                job_id,
+            ),
+        )
+        conn.commit()
+
+
+def get_transcription_job(conn: sqlite3.Connection, job_id: int) -> dict[str, Any] | None:
+    with _lock:
+        row = conn.execute(
+            """
+            SELECT id, filename, input_path, output_txt_path, model, language, status,
+                   phase, progress, duration_seconds, error, created_at, updated_at
+            FROM transcription_jobs
+            WHERE id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return dict(row)
+
+
+def list_transcription_jobs(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, Any]]:
+    with _lock:
+        rows = conn.execute(
+            """
+            SELECT id, filename, input_path, output_txt_path, model, language, status,
+                   phase, progress, duration_seconds, error, created_at, updated_at
+            FROM transcription_jobs
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def create_or_requeue_job(

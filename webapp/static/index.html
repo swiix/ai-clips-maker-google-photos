@@ -14,6 +14,7 @@
       <button type="button" data-tab="gallery" class="tab">Galerie</button>
       <button type="button" data-tab="tinderwatch" class="tab">TinderWatch <span id="tinderwatch-unseen-badge" class="tab-badge hidden">0</span></button>
       <button type="button" data-tab="jobs" class="tab">Jobs</button>
+      <button type="button" data-tab="transcription" class="tab">Transkription</button>
       <button type="button" data-tab="stats" class="tab">Statistik</button>
       <button type="button" data-tab="cuts" class="tab">Schnitt-Analyse</button>
       <button type="button" data-tab="settings" class="tab">Settings</button>
@@ -88,6 +89,28 @@
         <button type="button" id="tinder-download-all" class="btn primary">Alle Downloads</button>
         <button type="button" id="tinder-export-likes" class="btn">Like-Liste herunterladen</button>
       </div>
+      <div class="jobs-filters">
+        <label class="jobs-filter-field">Sortieren
+          <select id="tinder-sort" class="btn">
+            <option value="updated_desc">Zuletzt aktualisiert (neu)</option>
+            <option value="updated_asc">Zuletzt aktualisiert (alt)</option>
+            <option value="created_desc">Erstelldatum (neu)</option>
+            <option value="created_asc">Erstelldatum (alt)</option>
+            <option value="duration_desc">Dauer (s) ↓</option>
+            <option value="duration_asc">Dauer (s) ↑</option>
+            <option value="saved_sec_desc">Ersparnis (s) ↓</option>
+            <option value="saved_sec_asc">Ersparnis (s) ↑</option>
+            <option value="saved_pct_desc">Schnitt (%) ↓</option>
+            <option value="saved_pct_asc">Schnitt (%) ↑</option>
+          </select>
+        </label>
+        <label class="jobs-filter-field">Min Ersparnis (s)
+          <input type="number" id="tinder-min-saved-sec" min="0" step="0.1" placeholder="z.B. 5" />
+        </label>
+        <label class="jobs-filter-field">Min Schnitt (%)
+          <input type="number" id="tinder-min-saved-pct" min="0" max="100" step="0.1" placeholder="z.B. 20" />
+        </label>
+      </div>
       <p id="tinder-status" class="muted">Lade Clips…</p>
       <div class="tinder-layout">
         <div class="tinder-stage">
@@ -145,6 +168,26 @@
           <tr><th>Aktion</th><th>Dauer (s)</th><th>Ersparnis (s)</th><th>Schnitt (%)</th><th>Erstelldatum</th><th>ID</th><th>Media</th><th>Typ</th><th>Profile</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Fehler</th></tr>
         </thead>
         <tbody id="jobs-body"></tbody>
+      </table>
+    </section>
+
+    <section id="panel-transcription" class="panel">
+      <div class="toolbar">
+        <input type="file" id="transcription-file" accept="audio/*,video/*" />
+        <select id="transcription-model" class="btn">
+          <option value="whisper-1" selected>whisper-1</option>
+          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
+        </select>
+        <input type="text" id="transcription-language" placeholder="Sprache optional, z.B. de" />
+        <button type="button" id="transcription-upload" class="btn primary">Audio hochladen & transkribieren</button>
+        <button type="button" id="transcription-refresh" class="btn">Aktualisieren</button>
+      </div>
+      <p id="transcription-status" class="muted">Lade Transkriptionsjobs…</p>
+      <table class="jobs">
+        <thead>
+          <tr><th>ID</th><th>Datei</th><th>Model</th><th>Sprache</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Dauer (s)</th><th>Aktion</th><th>Fehler</th></tr>
+        </thead>
+        <tbody id="transcription-body"></tbody>
       </table>
     </section>
 

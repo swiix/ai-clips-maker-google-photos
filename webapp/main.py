@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Annotated, Any, Optional, List
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from webapp import db as dbmod
 from webapp import jobs as jobsmod
+from webapp import transcribe_jobs as transcribe_jobsmod
 from webapp.db import connect, init_db
 from webapp.google_photos import (
     build_oauth_flow,
@@ -116,12 +117,14 @@ async def lifespan(app: FastAPI):
         return c
 
     jobsmod.start_worker(conn_factory, settings)
+    transcribe_jobsmod.start_worker(conn_factory, settings)
     qc = conn_factory()
     try:
         stale = jobsmod.mark_stale_running_jobs_failed(qc)
         if stale:
             logger.warning("Marked %s stale running job(s) as failed", stale)
         jobsmod.queue_pending_on_startup(qc)
+        transcribe_jobsmod.queue_pending_on_startup(qc)
     finally:
         qc.close()
 
@@ -149,6 +152,7 @@ async def lifespan(app: FastAPI):
     if _scheduler:
         _scheduler.shutdown(wait=False)
     jobsmod.stop_worker()
+    transcribe_jobsmod.stop_worker()
 
 
 app = FastAPI(title="Meta Glasses AI Magic Clips Google Photos", lifespan=lifespan)
@@ -266,6 +270,10 @@ class TinderReviewBody(BaseModel):
     video_url: Optional[str] = None
     begin_sec: Optional[float] = None
     finish_sec: Optional[float] = None
+
+
+class TranscriptionCreateOut(BaseModel):
+    job_id: int
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -645,6 +653,63 @@ def tinder_reviews_upsert(body: TinderReviewBody, conn: DbDep) -> dict[str, Any]
         finish_sec=body.finish_sec,
     )
     return {"status": "ok", "clip_key": clip_key}
+
+
+@app.post("/api/transcriptions/upload", response_model=TranscriptionCreateOut)
+async def upload_transcription_audio(
+    settings: SettingsDep,
+    conn: DbDep,
+    file: UploadFile = File(...),
+    model: str = Query(default="whisper-1"),
+    language: str | None = Query(default=None),
+) -> TranscriptionCreateOut:
+    filename = str(file.filename or "").strip()
+    if not filename:
+        raise HTTPException(400, "filename is required")
+    uploads_dir = settings.data_dir / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(filename).name
+    ts = int(time.time())
+    target = uploads_dir / f"{ts}_{safe_name}"
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(400, "empty file")
+    target.write_bytes(payload)
+    job_id = dbmod.create_transcription_job(
+        conn,
+        filename=safe_name,
+        input_path=str(target),
+        model=str(model or "whisper-1").strip() or "whisper-1",
+        language=(str(language).strip() if language else None),
+    )
+    transcribe_jobsmod.enqueue(job_id)
+    return TranscriptionCreateOut(job_id=job_id)
+
+
+@app.get("/api/transcriptions")
+def list_transcriptions(conn: DbDep) -> list[dict[str, Any]]:
+    return dbmod.list_transcription_jobs(conn)
+
+
+@app.get("/api/transcriptions/{job_id}")
+def get_transcription(job_id: int, conn: DbDep) -> dict[str, Any]:
+    row = dbmod.get_transcription_job(conn, job_id)
+    if not row:
+        raise HTTPException(404, "Transcription job not found")
+    return row
+
+
+@app.get("/api/transcriptions/{job_id}/text")
+def download_transcription_text(job_id: int, conn: DbDep) -> FileResponse:
+    row = dbmod.get_transcription_job(conn, job_id)
+    if not row:
+        raise HTTPException(404, "Transcription job not found")
+    if str(row.get("status") or "") != "done":
+        raise HTTPException(409, "Transcription is not finished yet")
+    output_path = Path(str(row.get("output_txt_path") or "")).expanduser().resolve()
+    if not output_path.is_file():
+        raise HTTPException(404, "Transcription text not found")
+    return FileResponse(output_path, filename=output_path.name, media_type="text/plain")
 
 
 _STATS_METHOD_LABELS_DE: dict[str, str] = {
@@ -1129,7 +1194,8 @@ def _build_gallery_entries(
     # Build gallery primarily from jobs table as source of truth.
     done_rows = conn.execute(
         """
-        SELECT id, media_item_id, filename, creation_time, output_dir, trim_method_label, job_options, job_type
+        SELECT id, media_item_id, filename, creation_time, output_dir, trim_method_label, job_options, job_type,
+               created_at, updated_at, cut_input_seconds, cut_output_seconds
         FROM jobs
         WHERE status = 'done' AND output_dir IS NOT NULL
         ORDER BY updated_at DESC
@@ -1186,6 +1252,10 @@ def _build_gallery_entries(
                     "jobId": int(r["id"]),
                     "jobType": str(r["job_type"] or ""),
                     "trimMode": _trim_mode_from_job(r["trim_method_label"], r["job_options"], r["job_type"]),
+                    "createdAt": r["created_at"],
+                    "updatedAt": r["updated_at"],
+                    "cutInputSeconds": r["cut_input_seconds"],
+                    "cutOutputSeconds": r["cut_output_seconds"],
                 },
                 "clips": clips_out,
                 "error": None,
