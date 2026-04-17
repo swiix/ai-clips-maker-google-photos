@@ -24,10 +24,18 @@ const STORAGE_KEYS = {
   cutMinDurationSec: "ai_clips_cut_min_duration_sec",
   noiseReductionMode: "ai_clips_noise_reduction_mode",
   trimMethod: "ai_clips_trim_method",
+  visibleTrimModes: "ai_clips_visible_trim_modes",
   tinderLikes: "ai_clips_tinder_likes",
   tinderDownloaded: "ai_clips_tinder_downloaded",
   tinderDecisions: "ai_clips_tinder_decisions",
 };
+const TRIM_METHOD_OPTIONS = [
+  { value: "silence_conservative", label: "Stille entfernen · Conservative" },
+  { value: "silence_balanced", label: "Stille entfernen · Balanced" },
+  { value: "silence_aggressive", label: "Stille entfernen · Aggressive" },
+  { value: "openai_speech", label: "OpenAI · nur gesprochene Segmente" },
+  { value: "all_methods_testing", label: "Testing Mode · alle 4 Methoden" },
+];
 
 function $(sel) {
   return document.querySelector(sel);
@@ -124,10 +132,8 @@ function restoreCutTuningFromStorage() {
   const trimMethodSelect = $("#trim-method");
   if (trimMethodSelect) {
     const savedTrimMethod = (window.localStorage.getItem(STORAGE_KEYS.trimMethod) || "").toLowerCase();
-    if (
-      savedTrimMethod &&
-      ["silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech", "all_methods_testing"].includes(savedTrimMethod)
-    ) {
+    const available = Array.from(trimMethodSelect.options).map((o) => String(o.value || "").toLowerCase());
+    if (savedTrimMethod && available.includes(savedTrimMethod)) {
       trimMethodSelect.value = savedTrimMethod;
     }
   }
@@ -188,10 +194,78 @@ function persistNoiseModeToStorage(mode) {
 
 function persistTrimMethodToStorage(method) {
   const normalized = String(method || "").toLowerCase();
-  if (!["silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech", "all_methods_testing"].includes(normalized)) return;
+  if (!TRIM_METHOD_OPTIONS.some((m) => m.value === normalized)) return;
   try {
     window.localStorage.setItem(STORAGE_KEYS.trimMethod, normalized);
   } catch (_) {}
+}
+
+function getVisibleTrimModes() {
+  const all = TRIM_METHOD_OPTIONS.map((m) => m.value);
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.visibleTrimModes);
+    if (!raw) return all;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return all;
+    const valid = parsed.map((x) => String(x || "").toLowerCase()).filter((x) => all.includes(x));
+    return valid.length ? Array.from(new Set(valid)) : all;
+  } catch (_) {
+    return all;
+  }
+}
+
+function persistVisibleTrimModes(modes) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.visibleTrimModes, JSON.stringify(modes));
+  } catch (_) {}
+}
+
+function applyVisibleTrimModesToDropdown() {
+  const select = $("#trim-method");
+  if (!select) return;
+  const visible = getVisibleTrimModes();
+  const current = String(select.value || "").toLowerCase();
+  const fallback = (window.localStorage.getItem(STORAGE_KEYS.trimMethod) || "").toLowerCase();
+  select.innerHTML = "";
+  for (const opt of TRIM_METHOD_OPTIONS) {
+    if (!visible.includes(opt.value)) continue;
+    const el = document.createElement("option");
+    el.value = opt.value;
+    el.textContent = opt.label;
+    select.appendChild(el);
+  }
+  const candidates = [current, fallback, "silence_balanced", visible[0]];
+  const selected = candidates.find((v) => v && visible.includes(v));
+  if (selected) select.value = selected;
+  persistTrimMethodToStorage(select.value);
+}
+
+function renderTrimModeSettings() {
+  const root = $("#settings-trim-modes");
+  if (!root) return;
+  const visible = new Set(getVisibleTrimModes());
+  root.innerHTML = "";
+  for (const mode of TRIM_METHOD_OPTIONS) {
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" data-trim-mode="${escapeHtml(mode.value)}" ${
+      visible.has(mode.value) ? "checked" : ""
+    } /> ${escapeHtml(mode.label)}`;
+    root.appendChild(label);
+  }
+  root.querySelectorAll("input[data-trim-mode]").forEach((node) => {
+    node.addEventListener("change", () => {
+      const checked = Array.from(root.querySelectorAll("input[data-trim-mode]:checked")).map((x) =>
+        String(x.getAttribute("data-trim-mode") || "")
+      );
+      if (!checked.length) {
+        node.checked = true;
+        return;
+      }
+      persistVisibleTrimModes(checked);
+      applyVisibleTrimModesToDropdown();
+      updateOpenAiTuningVisibility();
+    });
+  });
 }
 
 function updateOpenAiTuningVisibility() {
@@ -2206,6 +2280,7 @@ document.querySelector('[data-tab="cuts"]').addEventListener("click", () => {
 });
 document.querySelector('[data-tab="settings"]').addEventListener("click", () => {
   loadSettingsCacheSummary();
+  renderTrimModeSettings();
 });
 
 const refreshStats = $("#refresh-stats");
@@ -2253,6 +2328,7 @@ loadJobs();
 restoreLastPickerSession();
 startJobsPolling();
 startCachePolling();
+applyVisibleTrimModesToDropdown();
 restoreCutTuningFromStorage();
 updateOpenAiTuningVisibility();
 loadTinderStateFromStorage();
@@ -2265,4 +2341,5 @@ hydrateTinderStateFromServer().then(() => {
 updateTinderLikeFilterButton();
 renderTinderStats();
 updateSettingsDaysButtons();
+renderTrimModeSettings();
 refreshTinderwatchBadgeFromServer();
