@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import subprocess
 import tempfile
 import threading
@@ -24,6 +25,7 @@ _lock = threading.Lock()
 
 _OPENAI_TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions"
 _CHUNK_SECONDS = 20 * 60
+_SILENCE_RE = re.compile(r"silence_(start|end):\s*([0-9]+(?:\.[0-9]+)?)")
 
 
 def start_worker(conn_factory, settings: "Settings") -> None:
@@ -113,6 +115,64 @@ def _extract_chunk_mp3(input_path: Path, chunk_path: Path, start_sec: float, dur
         raise RuntimeError((proc.stderr or proc.stdout or "ffmpeg chunk extraction failed").strip())
 
 
+def _detect_silence_markers(input_path: Path) -> list[tuple[str, float]]:
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "info",
+        "-i",
+        str(input_path),
+        "-af",
+        "silencedetect=noise=-35dB:d=0.35",
+        "-f",
+        "null",
+        "-",
+    ]
+    proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    payload = f"{proc.stderr or ''}\n{proc.stdout or ''}"
+    markers: list[tuple[str, float]] = []
+    for m in _SILENCE_RE.finditer(payload):
+        kind = m.group(1)
+        try:
+            ts = float(m.group(2))
+        except (TypeError, ValueError):
+            continue
+        markers.append((kind, ts))
+    markers.sort(key=lambda x: x[1])
+    return markers
+
+
+def _build_silence_aware_chunks(total: float, markers: list[tuple[str, float]]) -> list[tuple[float, float]]:
+    if total <= 0:
+        return [(0.0, float(_CHUNK_SECONDS))]
+    silence_starts = [ts for kind, ts in markers if kind == "start" and 0 < ts < total]
+    chunks: list[tuple[float, float]] = []
+    cursor = 0.0
+    min_chunk = 8 * 60.0
+    max_chunk = 25 * 60.0
+    prefer = float(_CHUNK_SECONDS)
+    while cursor < total:
+        remaining = total - cursor
+        if remaining <= max_chunk:
+            chunks.append((cursor, remaining))
+            break
+        min_end = cursor + min_chunk
+        prefer_end = cursor + prefer
+        max_end = cursor + max_chunk
+        candidates = [s for s in silence_starts if min_end <= s <= max_end]
+        if candidates:
+            # Pick nearest silence boundary to preferred target length.
+            cut = min(candidates, key=lambda s: abs(s - prefer_end))
+        else:
+            # Hard fallback only when no silence was found in a safe window.
+            cut = min(max_end, total)
+        dur = max(1.0, cut - cursor)
+        chunks.append((cursor, dur))
+        cursor = cut
+    return chunks
+
+
 def _transcribe_chunk_text(
     *,
     api_key: str,
@@ -196,16 +256,16 @@ def _run_job(conn: "sqlite3.Connection", settings: "Settings", job_id: int) -> N
     out_txt = output_dir / f"{base_name}_job{job_id}.txt"
 
     total = duration if duration > 0 else float(_CHUNK_SECONDS)
-    chunks: list[tuple[float, float]] = []
-    start = 0.0
-    while start < total:
-        dur = min(float(_CHUNK_SECONDS), total - start)
-        if dur <= 0:
-            break
-        chunks.append((start, dur))
-        start += dur
-    if not chunks:
-        chunks = [(0.0, float(_CHUNK_SECONDS))]
+    dbmod.update_transcription_job(
+        conn,
+        job_id,
+        status="running",
+        phase="detect_silence",
+        progress=0.04,
+        error=None,
+    )
+    markers = _detect_silence_markers(input_path)
+    chunks = _build_silence_aware_chunks(total, markers)
 
     texts: list[str] = []
     model = str(row.get("model") or settings.openai_transcription_model or "whisper-1")
@@ -216,7 +276,7 @@ def _run_job(conn: "sqlite3.Connection", settings: "Settings", job_id: int) -> N
             job_id,
             status="running",
             phase=f"transcribe_chunk_{idx}",
-            progress=0.05 + (0.9 * ((idx - 1) / max(1, len(chunks)))),
+            progress=0.08 + (0.86 * ((idx - 1) / max(1, len(chunks)))),
             error=None,
         )
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
