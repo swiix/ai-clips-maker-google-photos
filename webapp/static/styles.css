@@ -223,6 +223,41 @@ main {
   font-size: 0.95rem;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 10, 18, 0.65);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+}
+
+.modal-backdrop.hidden {
+  display: none;
+}
+
+.modal-card {
+  width: min(480px, calc(100vw - 2rem));
+  border-radius: 14px;
+  border: 1px solid #2c3559;
+  background: linear-gradient(180deg, #131a2e, #0f1628);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.45);
+  padding: 1rem 1.1rem;
+}
+
+.modal-card h3 {
+  margin: 0 0 0.45rem;
+}
+
+.modal-actions {
+  margin-top: 0.85rem;
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}
+
 .hidden {
   display: none !important;
 }

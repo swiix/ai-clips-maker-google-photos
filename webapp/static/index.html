@@ -228,6 +228,16 @@
       </div>
     </section>
   </main>
+  <div id="active-downloads-modal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="active-downloads-title">
+      <h3 id="active-downloads-title">Aktive Downloads erkannt</h3>
+      <p id="active-downloads-message" class="muted">Es laufen noch Downloads.</p>
+      <div class="modal-actions">
+        <button type="button" id="active-downloads-start-now" class="btn primary">Jetzt starten</button>
+        <button type="button" id="active-downloads-wait-start" class="btn">Warten und starten</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/static/app.js?v=stats1" defer></script>
 </body>

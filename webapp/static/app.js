@@ -278,6 +278,61 @@ function updateOpenAiTuningVisibility() {
   box.classList.remove("hidden");
 }
 
+function countActiveDownloads(items) {
+  let active = 0;
+  for (const it of items || []) {
+    const id = itemKey(it);
+    if (!id) continue;
+    const stateName = state.cacheStateById.get(id) || "";
+    if (stateName === "loading") active += 1;
+  }
+  return active;
+}
+
+function waitForDownloadsToFinish(items, timeoutMs = 10 * 60 * 1000) {
+  const start = Date.now();
+  return new Promise((resolve) => {
+    const tick = () => {
+      const active = countActiveDownloads(items);
+      if (active <= 0) return resolve(true);
+      if (Date.now() - start >= timeoutMs) return resolve(false);
+      window.setTimeout(tick, 1000);
+    };
+    tick();
+  });
+}
+
+function askStartWhileDownloadsRunning(activeCount) {
+  const modal = $("#active-downloads-modal");
+  const message = $("#active-downloads-message");
+  const nowBtn = $("#active-downloads-start-now");
+  const waitBtn = $("#active-downloads-wait-start");
+  if (!modal || !message || !nowBtn || !waitBtn) {
+    return Promise.resolve("now");
+  }
+  message.textContent = `Es sind noch ${activeCount} aktive Downloads. Was möchtest du tun?`;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      nowBtn.removeEventListener("click", onNow);
+      waitBtn.removeEventListener("click", onWait);
+      modal.classList.add("hidden");
+      modal.setAttribute("aria-hidden", "true");
+    };
+    const onNow = () => {
+      cleanup();
+      resolve("now");
+    };
+    const onWait = () => {
+      cleanup();
+      resolve("wait");
+    };
+    nowBtn.addEventListener("click", onNow);
+    waitBtn.addEventListener("click", onWait);
+  });
+}
+
 document.querySelectorAll(".tab").forEach((b) => {
   b.addEventListener("click", () => setTab(b.dataset.tab, { syncUrl: true, replaceHistory: false }));
 });
@@ -1218,6 +1273,18 @@ $("#run-selected").addEventListener("click", async () => {
 
   const selectedItems = Array.from(state.selected.values());
   const sourceItems = selectedItems.length ? selectedItems : visibleItems();
+  const activeDownloads = countActiveDownloads(sourceItems);
+  if (activeDownloads > 0) {
+    const action = await askStartWhileDownloadsRunning(activeDownloads);
+    if (action === "wait") {
+      $("#media-status").textContent = `Warte auf ${activeDownloads} aktive Downloads...`;
+      const ready = await waitForDownloadsToFinish(sourceItems);
+      if (!ready) {
+        $("#media-status").textContent = "Warten auf Downloads abgebrochen (Timeout). Bitte erneut starten.";
+        return;
+      }
+    }
+  }
   const skippedNotReady = sourceItems.filter(
     (it) => itemProcessingStatus(it).toUpperCase() === "PROCESSING"
   ).length;
