@@ -1274,7 +1274,9 @@ $("#run-selected").addEventListener("click", async () => {
   const selectedItems = Array.from(state.selected.values());
   const sourceItems = selectedItems.length ? selectedItems : visibleItems();
   const activeDownloads = countActiveDownloads(sourceItems);
-  if (activeDownloads > 0) {
+  if (activeDownloads <= 0) {
+    $("#media-status").textContent = "Keine aktiven Downloads. Starte Verarbeitung direkt...";
+  } else {
     const action = await askStartWhileDownloadsRunning(activeDownloads);
     if (action === "wait") {
       $("#media-status").textContent = `Warte auf ${activeDownloads} aktive Downloads...`;
@@ -1283,6 +1285,7 @@ $("#run-selected").addEventListener("click", async () => {
         $("#media-status").textContent = "Warten auf Downloads abgebrochen (Timeout). Bitte erneut starten.";
         return;
       }
+      $("#media-status").textContent = "Downloads abgeschlossen. Starte Verarbeitung direkt...";
     }
   }
   const skippedNotReady = sourceItems.filter(
