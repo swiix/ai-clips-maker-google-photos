@@ -399,7 +399,11 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 cut_output_seconds=out_secs if out_secs > 0 else None,
             )
         elif job_type == "silence_remove":
-            from webapp.silence_remover import remove_silence_selected_profiles
+            from webapp.silence_remover import (
+                duration_before_after_tag,
+                probe_duration_seconds,
+                remove_silence_selected_profiles,
+            )
 
             dbmod.upsert_job(
                 conn,
@@ -420,6 +424,68 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 if options.get("cut_min_duration_sec") is not None:
                     cut_min_duration_sec = max(0.01, float(options["cut_min_duration_sec"]))
                 trim_method = str(options.get("trim_method") or "").strip()
+                if trim_method == "none":
+                    before = probe_duration_seconds(str(processing_input))
+                    dur_tag = duration_before_after_tag(before, before)
+                    output_path = Path(output_dir) / f"{run_prefix}_{dur_tag}_nocut.mp4"
+                    copy_cmd = [
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        str(processing_input),
+                        "-c",
+                        "copy",
+                        str(output_path),
+                    ]
+                    copy_proc = subprocess.run(copy_cmd, text=True, capture_output=True, check=False)
+                    if copy_proc.returncode != 0 or not output_path.is_file():
+                        # Fallback when stream copy is not possible for specific source codecs/containers.
+                        transcode_cmd = [
+                            "ffmpeg",
+                            "-y",
+                            "-i",
+                            str(processing_input),
+                            "-c:v",
+                            "libx264",
+                            "-preset",
+                            "veryfast",
+                            "-crf",
+                            "18",
+                            "-c:a",
+                            "aac",
+                            "-b:a",
+                            "192k",
+                            str(output_path),
+                        ]
+                        transcode_proc = subprocess.run(
+                            transcode_cmd, text=True, capture_output=True, check=False
+                        )
+                        if transcode_proc.returncode != 0 or not output_path.is_file():
+                            raise RuntimeError(
+                                "No-cut export failed: "
+                                + (transcode_proc.stderr or copy_proc.stderr or "unknown ffmpeg error")
+                            )
+                    dbmod.upsert_job(
+                        conn,
+                        media_item_id,
+                        job_type=job_type,
+                        status="done",
+                        phase="done",
+                        phase_message="Fertig (kein Schnitt, Original exportiert)",
+                        progress=1.0,
+                        output_dir=str(output_dir),
+                        error=None,
+                    )
+                    dbmod.set_job_run_metrics(
+                        conn,
+                        media_item_id,
+                        outputs_created=1,
+                        openai_input_seconds=None,
+                        openai_cost_usd=None,
+                        cut_input_seconds=before,
+                        cut_output_seconds=before,
+                    )
+                    return
                 profiles = options.get("profiles")
                 if trim_method == "silence_all":
                     selected_profiles = ["conservative", "balanced", "aggressive"]

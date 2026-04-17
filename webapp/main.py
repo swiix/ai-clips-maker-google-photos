@@ -732,6 +732,7 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
     """
     raw = (body.trim_method or "").strip().lower()
     valid_silence = {
+        "none",
         "silence_all",
         "silence_conservative",
         "silence_balanced",
@@ -783,6 +784,14 @@ def _trim_method_label_for_enqueue(body: EnqueueBody) -> str:
         pass
     if _job_type == "openai_speech_trim":
         return "openai_speech"
+    if _job_type == "silence_remove":
+        try:
+            o = json.loads(options_json)
+            tm = str(o.get("trim_method") or "").strip()
+            if tm:
+                return tm
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
     return "silence_balanced"
 
 

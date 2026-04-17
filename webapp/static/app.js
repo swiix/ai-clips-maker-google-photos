@@ -30,6 +30,7 @@ const STORAGE_KEYS = {
   tinderDecisions: "ai_clips_tinder_decisions",
 };
 const TRIM_METHOD_OPTIONS = [
+  { value: "none", label: "Kein Schnitt · Original" },
   { value: "silence_conservative", label: "Stille entfernen · Conservative" },
   { value: "silence_balanced", label: "Stille entfernen · Balanced" },
   { value: "silence_aggressive", label: "Stille entfernen · Aggressive" },
@@ -242,6 +243,15 @@ function applyVisibleTrimModesToDropdown() {
 
 function getActiveTestingMethods() {
   return getVisibleTrimModes().filter((m) => m !== "all_methods_testing");
+}
+
+function getTestingNoiseVariants() {
+  return [
+    { key: "nr_off", enabled: false, mode: "auto", label: "off" },
+    { key: "nr_auto", enabled: true, mode: "auto", label: "auto" },
+    { key: "nr_mild", enabled: true, mode: "mild", label: "mild" },
+    { key: "nr_strong", enabled: true, mode: "strong", label: "strong" },
+  ];
 }
 
 function renderTrimModeSettings() {
@@ -772,6 +782,7 @@ function formatRelativeFromEpoch(epochSeconds) {
 
 function trimMethodLabel(m) {
   const map = {
+    none: "Kein Schnitt · Original",
     silence_all: "Stille · alle Profile",
     silence_conservative: "Stille · Conservative",
     silence_balanced: "Stille · Balanced",
@@ -1314,27 +1325,30 @@ $("#run-selected").addEventListener("click", async () => {
         "Testing Mode: Keine aktiven Modi verfügbar. Aktiviere mindestens einen Modus in Settings.";
       return;
     }
+    const noiseVariants = getTestingNoiseVariants();
     for (const method of methods) {
-      const taggedItems = items.map((it) => ({
-        ...it,
-        // Dedicated synthetic IDs allow 4 parallel jobs per source video.
-        id: `${method}__${it.id}`,
-      }));
-      const r = await fetch("/api/jobs/silence-remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: taggedItems,
-          trim_method: method,
-          cut_merge_gap_sec: cutMergeGapSec,
-          cut_min_duration_sec: cutMinDurationSec,
-          noise_reduction: noiseReductionEnabled,
-          noise_reduction_mode: noiseReductionMode,
-        }),
-      });
-      const j = await r.json();
-      queuedCount += Number((j.queued_job_ids || []).length || 0);
-      skippedCount += Number((j.skipped_media_ids || []).length || 0);
+      for (const noise of noiseVariants) {
+        const taggedItems = items.map((it) => ({
+          ...it,
+          // Dedicated synthetic IDs allow matrix testing jobs per source video.
+          id: `${method}__${noise.key}__${it.id}`,
+        }));
+        const r = await fetch("/api/jobs/silence-remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: taggedItems,
+            trim_method: method,
+            cut_merge_gap_sec: cutMergeGapSec,
+            cut_min_duration_sec: cutMinDurationSec,
+            noise_reduction: noise.enabled,
+            noise_reduction_mode: noise.mode,
+          }),
+        });
+        const j = await r.json();
+        queuedCount += Number((j.queued_job_ids || []).length || 0);
+        skippedCount += Number((j.skipped_media_ids || []).length || 0);
+      }
     }
   } else {
     const r = await fetch("/api/jobs/silence-remove", {
