@@ -34,7 +34,7 @@ const TRIM_METHOD_OPTIONS = [
   { value: "silence_balanced", label: "Stille entfernen · Balanced" },
   { value: "silence_aggressive", label: "Stille entfernen · Aggressive" },
   { value: "openai_speech", label: "OpenAI · nur gesprochene Segmente" },
-  { value: "all_methods_testing", label: "Testing Mode · alle 4 Methoden" },
+  { value: "all_methods_testing", label: "Testing Mode · alle aktiven Modi" },
 ];
 
 function $(sel) {
@@ -238,6 +238,10 @@ function applyVisibleTrimModesToDropdown() {
   const selected = candidates.find((v) => v && visible.includes(v));
   if (selected) select.value = selected;
   persistTrimMethodToStorage(select.value);
+}
+
+function getActiveTestingMethods() {
+  return getVisibleTrimModes().filter((m) => m !== "all_methods_testing");
 }
 
 function renderTrimModeSettings() {
@@ -1234,12 +1238,12 @@ $("#run-selected").addEventListener("click", async () => {
   let queuedCount = 0;
   let skippedCount = 0;
   if (trimMethod === "all_methods_testing") {
-    const methods = [
-      "silence_conservative",
-      "silence_balanced",
-      "silence_aggressive",
-      "openai_speech",
-    ];
+    const methods = getActiveTestingMethods();
+    if (!methods.length) {
+      $("#media-status").textContent =
+        "Testing Mode: Keine aktiven Modi verfügbar. Aktiviere mindestens einen Modus in Settings.";
+      return;
+    }
     for (const method of methods) {
       const taggedItems = items.map((it) => ({
         ...it,
