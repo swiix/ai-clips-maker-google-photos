@@ -1740,18 +1740,24 @@ async function upsertTinderReviewOnServer(clip, patch = {}) {
     ...patch,
   };
   try {
-    await fetch("/api/tinder/reviews", {
+    const r = await fetch("/api/tinder/reviews", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
   } catch (_) {}
 }
 
 async function syncLocalTinderStateToServer(serverRows) {
-  const known = new Set((serverRows || []).map((r) => String(r.clip_key || "")));
+  const serverByKey = new Map((serverRows || []).map((r) => [String(r.clip_key || ""), r]));
   for (const [key, review] of state.tinderDecisions.entries()) {
-    if (known.has(key)) continue;
+    const server = serverByKey.get(key);
+    const localDecision = String(review.decision || "").toLowerCase();
+    const serverDecision = String(server?.decision || "").toLowerCase();
+    const localDownloaded = Boolean(state.tinderDownloaded.get(key)?.downloaded);
+    const serverDownloaded = Boolean(Number(server?.downloaded || 0));
+    if (server && serverDecision === localDecision && localDownloaded === serverDownloaded) continue;
     const clip = {
       key,
       jobId: review.jobId || null,
@@ -1763,11 +1769,15 @@ async function syncLocalTinderStateToServer(serverRows) {
       begin_sec: review.begin_sec,
       finish_sec: review.finish_sec,
     };
-    const downloaded = Boolean(state.tinderDownloaded.get(key)?.downloaded);
-    await upsertTinderReviewOnServer(clip, { decision: review.decision, downloaded });
+    await upsertTinderReviewOnServer(clip, { decision: localDecision, downloaded: localDownloaded });
   }
   for (const [key, like] of state.tinderLikes.entries()) {
-    if (known.has(key) || state.tinderDecisions.has(key)) continue;
+    if (state.tinderDecisions.has(key)) continue;
+    const server = serverByKey.get(key);
+    const localDownloaded = Boolean(state.tinderDownloaded.get(key)?.downloaded);
+    const serverDecision = String(server?.decision || "").toLowerCase();
+    const serverDownloaded = Boolean(Number(server?.downloaded || 0));
+    if (server && serverDecision === "like" && localDownloaded === serverDownloaded) continue;
     const clip = {
       key,
       jobId: like.jobId || null,
@@ -1779,8 +1789,7 @@ async function syncLocalTinderStateToServer(serverRows) {
       begin_sec: like.begin_sec,
       finish_sec: like.finish_sec,
     };
-    const downloaded = Boolean(state.tinderDownloaded.get(key)?.downloaded);
-    await upsertTinderReviewOnServer(clip, { decision: "like", downloaded });
+    await upsertTinderReviewOnServer(clip, { decision: "like", downloaded: localDownloaded });
   }
 }
 
@@ -1967,7 +1976,7 @@ function pruneReviewedFromCurrentClips() {
   }
 }
 
-function markTinderLiked(clip) {
+async function markTinderLiked(clip) {
   if (!clip) return;
   state.tinderLikes.set(clip.key, {
     key: clip.key,
@@ -1982,10 +1991,10 @@ function markTinderLiked(clip) {
     liked_at: new Date().toISOString(),
   });
   persistTinderState();
-  upsertTinderReviewOnServer(clip, { decision: "like" });
+  await upsertTinderReviewOnServer(clip, { decision: "like" });
 }
 
-function markTinderDecision(clip, decision) {
+async function markTinderDecision(clip, decision) {
   if (!clip || (decision !== "like" && decision !== "dislike")) return;
   state.tinderDecisions.set(clip.key, {
     key: clip.key,
@@ -1998,7 +2007,7 @@ function markTinderDecision(clip, decision) {
     decided_at: new Date().toISOString(),
   });
   persistTinderState();
-  upsertTinderReviewOnServer(clip, { decision });
+  await upsertTinderReviewOnServer(clip, { decision });
 }
 
 function markTinderDownloaded(clip) {
@@ -2273,16 +2282,19 @@ function tinderPrev() {
 
 function tinderDislike() {
   const clip = getCurrentTinderClip();
-  if (clip) markTinderDecision(clip, "dislike");
+  if (clip) {
+    markTinderDecision(clip, "dislike").finally(() => tinderNext());
+    return;
+  }
   tinderNext();
 }
 
 function tinderLike() {
   const clip = getCurrentTinderClip();
   if (!clip) return;
-  markTinderLiked(clip);
-  markTinderDecision(clip, "like");
-  tinderNext();
+  markTinderLiked(clip)
+    .then(() => markTinderDecision(clip, "like"))
+    .finally(() => tinderNext());
 }
 
 function downloadAllLikedClips() {
