@@ -2455,6 +2455,26 @@ function tinderLike() {
     .finally(() => tinderNext());
 }
 
+async function tinderSkipAll() {
+  const toSkip = [...(state.tinderClips || [])];
+  if (!toSkip.length) return;
+  const ok = window.confirm(
+    `Alle ${toSkip.length} offenen Clip(s) in dieser Queue überspringen? (Keine Likes)`
+  );
+  if (!ok) return;
+  const statusEl = $("#tinder-status");
+  if (statusEl) statusEl.textContent = `Überspringe ${toSkip.length} Clip(s)…`;
+  for (const clip of toSkip) {
+    await markTinderDecision(clip, "dislike");
+  }
+  pruneReviewedFromCurrentClips();
+  state.tinderIndex = 0;
+  setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
+  renderTinderCard();
+  renderTinderStats();
+  updateTinderStatus();
+}
+
 function downloadAllLikedClips() {
   const likes = Array.from(state.tinderLikes.values());
   if (!likes.length) {
@@ -2558,6 +2578,8 @@ if (refreshCuts) refreshCuts.addEventListener("click", () => loadCutsView());
 
 const tinderRefresh = $("#tinder-refresh");
 if (tinderRefresh) tinderRefresh.addEventListener("click", () => loadTinderWatch(true));
+const tinderSkipAllBtn = $("#tinder-skip-all");
+if (tinderSkipAllBtn) tinderSkipAllBtn.addEventListener("click", () => tinderSkipAll());
 const tinderSort = $("#tinder-sort");
 if (tinderSort) {
   tinderSort.addEventListener("change", () => {
