@@ -7,6 +7,9 @@ Schema versioning
 migration level. Bump :data:`CURRENT_SCHEMA_VERSION` when adding a new
 ``_migrate_vN`` step in :func:`apply_migrations`.
 
+Migration **v2** collapses duplicate ``tinder_reviews`` rows that resolve to the
+same stable gallery path (``v:{relative path}``, aligned with the web UI).
+
 Foreign keys are not enforced in SQLite (no ``PRAGMA foreign_keys``); relations
 between ``jobs`` and ``tinder_reviews`` are logical only.
 
@@ -42,12 +45,13 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 _lock = threading.Lock()
 
 # Stored in sync_state; increment when adding a new _migrate_vN branch.
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 _JOBS_COLUMN_ALIASES_V1 = (
     ("phase", "ALTER TABLE jobs ADD COLUMN phase TEXT"),
@@ -81,6 +85,57 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {r[1] for r in rows}
 
 
+def _normalize_gallery_relative_path(video_url: str) -> str:
+    """
+    Match ``normalizeGalleryRelativePath`` in ``static/app.js``: path under
+    ``/api/gallery/file/`` after decode, no leading slashes.
+    """
+    s = str(video_url or "").strip()
+    if not s:
+        return ""
+    marker = "/api/gallery/file/"
+    if marker in s:
+        path = s.split(marker, 1)[1]
+    else:
+        try:
+            base = "http://127.0.0.1"
+            if s.startswith(("http://", "https://")):
+                joined = s
+            elif s.startswith("/"):
+                joined = base + s
+            else:
+                joined = base + "/" + s
+            p = urlparse(joined).path or ""
+            idx = p.find(marker)
+            if idx < 0:
+                return ""
+            path = p[idx + len(marker) :]
+        except Exception:
+            return ""
+    try:
+        part = path.split("?")[0].replace("\\", "/")
+        return unquote(part).lstrip("/")
+    except Exception:
+        return path.split("?")[0].replace("\\", "/").lstrip("/")
+
+
+def _tinder_stable_clip_key(clip_key: str | None, video_url: str | None) -> str:
+    """
+    Match the web client's stable id: ``v:{gallery path}``. Rows may already
+    store the canonical ``clip_key`` without ``video_url``.
+    """
+    ck = str(clip_key or "").strip()
+    if ck.startswith("v:") and len(ck) > 2:
+        return ck
+    for candidate in (video_url, clip_key):
+        if not candidate:
+            continue
+        rel = _normalize_gallery_relative_path(str(candidate))
+        if rel:
+            return f"v:{rel}"
+    return ""
+
+
 def _migrate_v1(conn: sqlite3.Connection) -> None:
     """
     Align legacy databases with the column set that newer clients expect.
@@ -99,6 +154,101 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
         if name not in tinder_cols:
             conn.execute(ddl)
             tinder_cols.add(name)
+
+
+def _merge_tinder_review_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        raise ValueError("empty tinder_reviews group")
+
+    def updated_ts(r: dict[str, Any]) -> float:
+        try:
+            return float(r.get("updated_at") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    sorted_rows = sorted(rows, key=updated_ts, reverse=True)
+    merged: dict[str, Any] = dict(sorted_rows[0])
+    for r in sorted_rows[1:]:
+        for k in (
+            "job_id",
+            "media_item_id",
+            "decision",
+            "trim_mode",
+            "source_filename",
+            "folder",
+            "video_url",
+            "begin_sec",
+            "finish_sec",
+        ):
+            if merged.get(k) is None and r.get(k) is not None:
+                merged[k] = r[k]
+    merged["downloaded"] = max(int(r.get("downloaded") or 0) for r in rows)
+    created_vals = [
+        float(r["created_at"])
+        for r in rows
+        if r.get("created_at") is not None
+        and str(r["created_at"]).strip() != ""
+    ]
+    if created_vals:
+        merged["created_at"] = min(created_vals)
+    merged["updated_at"] = max(updated_ts(r) for r in rows)
+    return merged
+
+
+def _migrate_v2_dedupe_tinder_reviews(conn: sqlite3.Connection) -> None:
+    """
+    Merge rows that refer to the same gallery file (stable ``v:{path}``) so
+    legacy composite ``clip_key`` rows collapse into one canonical row.
+    """
+    rows = [dict(r) for r in conn.execute("SELECT * FROM tinder_reviews").fetchall()]
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for d in rows:
+        stable = _tinder_stable_clip_key(d.get("clip_key"), d.get("video_url"))
+        if not stable:
+            continue
+        groups.setdefault(stable, []).append(d)
+
+    for stable, group in groups.items():
+        keys = {str(r["clip_key"]) for r in group}
+        if len(keys) == 1 and stable in keys:
+            continue
+        merged = _merge_tinder_review_rows(group)
+        merged["clip_key"] = stable
+        placeholders = ",".join("?" * len(group))
+        old_keys = [r["clip_key"] for r in group]
+        conn.execute(
+            f"DELETE FROM tinder_reviews WHERE clip_key IN ({placeholders})",
+            old_keys,
+        )
+        conn.execute(
+            """
+            INSERT INTO tinder_reviews (
+                clip_key, job_id, media_item_id, decision, downloaded, trim_mode, source_filename, folder, video_url,
+                begin_sec, finish_sec, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                merged["clip_key"],
+                merged.get("job_id"),
+                merged.get("media_item_id"),
+                merged.get("decision"),
+                int(merged.get("downloaded") or 0),
+                merged.get("trim_mode"),
+                merged.get("source_filename"),
+                merged.get("folder"),
+                merged.get("video_url"),
+                merged.get("begin_sec"),
+                merged.get("finish_sec"),
+                merged.get("created_at"),
+                merged.get("updated_at"),
+            ),
+        )
+
+
+def _migrate_v2(conn: sqlite3.Connection) -> None:
+    if not _table_columns(conn, "tinder_reviews"):
+        return
+    _migrate_v2_dedupe_tinder_reviews(conn)
 
 
 def _get_schema_version(conn: sqlite3.Connection) -> int:
@@ -128,6 +278,8 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         nxt = current + 1
         if nxt == 1:
             _migrate_v1(conn)
+        elif nxt == 2:
+            _migrate_v2(conn)
         else:
             raise RuntimeError(f"No SQLite migration implemented for schema version {nxt}")
         _set_schema_version(conn, nxt)

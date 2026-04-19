@@ -113,3 +113,54 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
     ).fetchone()
     conn.close()
     assert v is not None and int(v[0]) == dbmod.CURRENT_SCHEMA_VERSION
+
+
+def test_migration_v2_dedupes_tinder_reviews_same_gallery_path(tmp_path: Path) -> None:
+    db_path = tmp_path / "tinder_dup.db"
+    conn = dbmod.connect(db_path)
+    dbmod.prepare_database(conn)
+    url = "http://127.0.0.1/api/gallery/file/outputs/clip_a.mp4"
+    conn.execute(
+        """
+        INSERT INTO tinder_reviews (
+            clip_key, job_id, media_item_id, decision, downloaded, trim_mode,
+            source_filename, folder, video_url, begin_sec, finish_sec, created_at, updated_at
+        ) VALUES (?, NULL, NULL, 'dislike', 0, 'm', '', '', ?, NULL, NULL, 10.0, 30.0)
+        """,
+        ("legacy::0::/api/gallery/file/outputs/clip_a.mp4", url),
+    )
+    conn.execute(
+        """
+        INSERT INTO tinder_reviews (
+            clip_key, job_id, media_item_id, decision, downloaded, trim_mode,
+            source_filename, folder, video_url, begin_sec, finish_sec, created_at, updated_at
+        ) VALUES (?, NULL, NULL, 'like', 1, 'm', '', '', NULL, NULL, NULL, 11.0, 20.0)
+        """,
+        ("v:outputs/clip_a.mp4",),
+    )
+    conn.commit()
+    conn.execute(
+        "UPDATE sync_state SET value = '1' WHERE key = ?",
+        (dbmod.SCHEMA_VERSION_KEY,),
+    )
+    conn.commit()
+    dbmod.apply_migrations(conn)
+    rows = conn.execute(
+        "SELECT clip_key, decision, downloaded, updated_at FROM tinder_reviews ORDER BY clip_key"
+    ).fetchall()
+    conn.close()
+    assert len(rows) == 1
+    assert rows[0][0] == "v:outputs/clip_a.mp4"
+    # Newer row (legacy, updated_at=30) wins decision; downloaded OR => 1
+    assert rows[0][1] == "dislike"
+    assert int(rows[0][2]) == 1
+    assert float(rows[0][3]) == 30.0
+
+
+def test_normalize_gallery_relative_path_matches_stable_key(tmp_path: Path) -> None:
+    rel = dbmod._normalize_gallery_relative_path(
+        "/api/gallery/file/outputs/z%20y.mp4?x=1"
+    )
+    assert rel == "outputs/z y.mp4"
+    key = dbmod._tinder_stable_clip_key(None, "https://example.com/api/gallery/file/foo/bar.mov")
+    assert key == "v:foo/bar.mov"
