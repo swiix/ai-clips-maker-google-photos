@@ -64,15 +64,23 @@
           </label>
           <span class="openai-tuning-help" title="Richtwert: Bei unruhigem Schnitt zuerst Min-Dauer erhöhen, danach Merge-Gap leicht erhöhen. Gilt für alle Modi.">?</span>
         </div>
-        <div id="silero-vad-panel" class="silero-vad-panel hidden" aria-live="polite">
-          <div class="silero-wind-hint muted">
+        <div id="silero-vad-panel" class="silero-vad-panel hidden" aria-live="polite" title="Erscheint nur bei „Silero VAD“. Wind-Preset und Schwelle gelten nur für diesen Modus.">
+          <div class="silero-wind-hint muted" title="Bei Roller/MTB/Fahrtwind erzeugt Wind oft breites Rauschen ohne Sprache — Silero soll nur Fenster mit erkennbarer Sprache behalten. Vorher stark entrauschen hilft der Erkennung.">
             <strong>Fahrt / Wind:</strong>
             Für stabilere Spracherkennung Noise Reduction <strong>einschalten</strong> und Modus <strong>Strong</strong> empfehlen wir bei Roller, MTB oder Zugluft.
-            <button type="button" id="silero-wind-preset-btn" class="btn">Preset: NR an · Strong</button>
+            <button type="button" id="silero-wind-preset-btn" class="btn" title="Setzt Noise Reduction an und Noise-Modus auf Strong (wie in Settings · Silero empfohlen).">Preset: NR an · Strong</button>
           </div>
-          <label class="silero-threshold-field" title="Silero klassifiziert kurze Fenster als Sprache, wenn die Wahrscheinlichkeit über diesem Wert liegt. Niedriger (z. B. 0.35) = mehr/leisere Sprache erkannt; höher (z. B. 0.65) = weniger Fehl-Treffer durch Wind.">
+          <label class="silero-threshold-field" title="Silero gibt pro kurzem Fenster eine Sprach-Wahrscheinlichkeit 0–1. Alles über der Schwelle zählt als Sprache und bleibt im Schnitt.">
             VAD-Schwelle (0–1)
-            <input type="number" id="silero-vad-threshold" min="0" max="1" step="0.05" value="0.5" />
+            <input
+              type="number"
+              id="silero-vad-threshold"
+              min="0"
+              max="1"
+              step="0.05"
+              value="0.5"
+              title="Richtwerte: 0.35–0.45 wenn deine Stimme im Wind zu kurz kommt (kann mehr Rauschen einschließen). 0.55–0.65 wenn Wind fälschlich als Sprache erkannt wird. Standard 0.5. Änderung wird lokal gespeichert."
+            />
           </label>
         </div>
         <button type="button" id="select-all" class="btn">Alle sichtbaren</button>
@@ -292,6 +300,23 @@
             Bei „Testing Mode · alle aktiven Modi“ wird jede Kombination ausgewählter Trim-Modi und Noise-Varianten gestartet.
           </p>
         </div>
+        <div class="settings-clear-box">
+          <h3>Silero VAD · Fahrt &amp; Feintuning</h3>
+          <p class="muted settings-hint-para">
+            <strong>Fahrt / starker Wind (Roller, MTB):</strong>
+            Unter <strong>Quellen</strong> Noise Reduction <strong>einschalten</strong> und <strong>Modus Strong</strong> wählen — oder den Button
+            <strong>„Preset: NR an · Strong“</strong>, sobald „Silero VAD · nur Sprache“ aktiv ist. So liegt die Sprache für das Modell klarer über dem Wind.
+          </p>
+          <p class="muted settings-hint-para">
+            <strong>VAD-Schwelle (0–1):</strong>
+            Silero markiert kurze Zeitfenster als Sprache, wenn die Sprach-Wahrscheinlichkeit <strong>über</strong> diesem Wert liegt.
+            <em>Niedriger</em> (z. B. 0.35–0.45): mehr erhalten, auch leises Sprechen — dafür kann starker Wind eher mit erkannt werden.
+            <em>Höher</em> (z. B. 0.55–0.65): strenger, weniger „Wind als Sprache“ — dafür können sehr leise Wörter fehlen.
+          </p>
+          <p class="muted settings-hint-para">
+            Schwellenwert und Wind-Preset stehen in der Toolbar auf <strong>Quellen</strong>, sobald du <strong>Silero VAD · nur Sprache (lokal)</strong> auswählst (nicht hier).
+          </p>
+        </div>
         <p id="settings-status" class="muted"></p>
       </div>
     </section>
@@ -307,6 +332,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=silero-vad-preset-threshold2" defer></script>
+  <script src="/static/app.js?v=silero-vad-settings-hint3" defer></script>
 </body>
 </html>
