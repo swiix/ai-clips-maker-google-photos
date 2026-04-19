@@ -2456,18 +2456,42 @@ function tinderLike() {
 }
 
 async function tinderSkipAll() {
-  const toSkip = [...(state.tinderClips || [])];
-  if (!toSkip.length) return;
-  const ok = window.confirm(
-    `Alle ${toSkip.length} offenen Clip(s) in dieser Queue überspringen? (Keine Likes)`
-  );
-  if (!ok) return;
   const statusEl = $("#tinder-status");
+  // Match loadTinderWatch: first paint uses max_clips=20; full list loads in background.
+  // Skip-all must use the FULL gallery or many clips stay "open" after background hydrate.
+  if (statusEl) statusEl.textContent = "Lade vollständige Clip-Liste für Alle überspringen…";
+  try {
+    const fullUrl = `/api/gallery?include_orphans=1&use_cache=0&max_clips=0`;
+    const r = await fetch(fullUrl);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const fullData = await r.json();
+    state.tinderAllClips = flattenGalleryClips(fullData);
+    applyTinderQueueFromAllClips();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Liste konnte nicht geladen werden: ${err.message || err}`;
+    return;
+  }
+
+  const toSkip = [...(state.tinderClips || [])];
+  if (!toSkip.length) {
+    if (statusEl) statusEl.textContent = "Keine offenen Clips in dieser Queue.";
+    renderTinderCard();
+    updateTinderStatus();
+    return;
+  }
+  const ok = window.confirm(
+    `Alle ${toSkip.length} offenen Clip(s) überspringen? (Nach aktuellem Sort/Filter; keine Likes)`
+  );
+  if (!ok) {
+    updateTinderStatus();
+    return;
+  }
   if (statusEl) statusEl.textContent = `Überspringe ${toSkip.length} Clip(s)…`;
   for (const clip of toSkip) {
     await markTinderDecision(clip, "dislike");
   }
-  pruneReviewedFromCurrentClips();
+  state.tinderAllClips = filterUnreviewedClips(state.tinderAllClips);
+  applyTinderQueueFromAllClips();
   state.tinderIndex = 0;
   setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
   renderTinderCard();
