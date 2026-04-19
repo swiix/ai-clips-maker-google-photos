@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 SQLite persistence for the web app.
 
@@ -35,6 +33,8 @@ transcription_jobs
 ------------------
 Standalone transcription queue rows with status and file paths.
 """
+
+from __future__ import annotations
 
 import json
 import sqlite3
