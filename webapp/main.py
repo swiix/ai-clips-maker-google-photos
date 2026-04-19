@@ -248,6 +248,7 @@ class EnqueueBody(BaseModel):
     openai_min_segment_sec: Optional[float] = None
     noise_reduction: Optional[bool] = True
     noise_reduction_mode: Optional[str] = "auto"
+    remove_music: Optional[bool] = False
 
 
 class CacheClearAdvancedBody(BaseModel):
@@ -762,6 +763,7 @@ def enqueue_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
         "trim_method": "clip_pipeline_ai",
         "noise_reduction": noise_reduction_enabled,
         "noise_reduction_mode": noise_mode,
+        "remove_music": bool(body.remove_music),
     }
     if cut_merge_gap_sec is not None:
         options["cut_merge_gap_sec"] = cut_merge_gap_sec
@@ -813,6 +815,7 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
         payload = dict(opts)
         payload["noise_reduction"] = noise_reduction_enabled
         payload["noise_reduction_mode"] = noise_mode
+        payload["remove_music"] = bool(body.remove_music)
         if cut_merge_gap_sec is not None:
             payload["cut_merge_gap_sec"] = cut_merge_gap_sec
         if cut_min_duration_sec is not None:

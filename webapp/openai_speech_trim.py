@@ -9,7 +9,7 @@ import logging
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Sequence
 
 import httpx
 
@@ -122,6 +122,7 @@ def trim_video_to_openai_speech(
     usd_per_minute: float = 0.006,
     merge_gap_sec: float = 0.35,
     min_segment_sec: float = 0.04,
+    music_exclude_intervals: Optional[Sequence[tuple[float, float]]] = None,
 ) -> dict[str, str]:
     """
     Transcribe audio via OpenAI, keep only intervals where speech segments exist, concat video.
@@ -154,6 +155,17 @@ def trim_video_to_openai_speech(
     )
     if not keep:
         raise RuntimeError("OpenAI returned no speech segments to keep.")
+    if music_exclude_intervals:
+        from webapp.music_remover import subtract_intervals_from_keep
+
+        keep = subtract_intervals_from_keep(
+            keep,
+            music_exclude_intervals,
+            total_duration=total,
+            min_keep_sec=max(0.01, float(min_segment_sec)),
+        )
+    if not keep:
+        raise RuntimeError("All speech segments were removed as music-overlap cuts. Disable 'Remove music' or review the source.")
 
     # Clamp to duration
     clamped: list[tuple[float, float]] = []

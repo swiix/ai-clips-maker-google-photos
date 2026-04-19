@@ -297,6 +297,25 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
             )
             return
 
+    music_intervals: list[tuple[float, float]] = []
+    if _is_remove_music_enabled(row["job_options"]):
+        try:
+            from webapp.music_remover import detect_music_intervals
+
+            dbmod.upsert_job(
+                conn,
+                media_item_id,
+                job_type=job_type,
+                status="running",
+                phase="music_detect",
+                phase_message="Hintergrundmusik wird erkannt",
+                progress=0.34,
+            )
+            music_intervals = detect_music_intervals(str(processing_input))
+        except Exception as exc:
+            logger.warning("Music detection failed (%s); continuing without music cuts.", exc)
+            music_intervals = []
+
     slug = safe_dir_slug(Path(row["filename"] or "video").stem)
     short_id = media_item_id[:12] if len(media_item_id) > 12 else media_item_id
     run_prefix = f"{slug}_{short_id}_{uuid.uuid4().hex[:6]}"
@@ -364,6 +383,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 usd_per_minute=usd_per_min,
                 merge_gap_sec=merge_gap_sec,
                 min_segment_sec=min_segment_sec,
+                music_exclude_intervals=music_intervals or None,
             )
             out_name = Path(result["video_path"]).name
             dbmod.upsert_job(
@@ -400,9 +420,12 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
             )
         elif job_type == "silence_remove":
             from webapp.silence_remover import (
+                build_keep_segments,
                 duration_before_after_tag,
+                output_duration_from_keep_segments,
                 probe_duration_seconds,
                 remove_silence_selected_profiles,
+                render_keep_segments_video,
             )
 
             dbmod.upsert_job(
@@ -426,6 +449,44 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 trim_method = str(options.get("trim_method") or "").strip()
                 if trim_method == "none":
                     before = probe_duration_seconds(str(processing_input))
+                    if music_intervals:
+                        keep_nm = build_keep_segments(
+                            before,
+                            music_intervals,
+                            padding_sec=0.0,
+                            min_keep_sec=0.05,
+                        )
+                        if not keep_nm:
+                            raise RuntimeError(
+                                "Music removal left no usable audio. Uncheck 'Remove music' or use another trim mode."
+                            )
+                        after_nm = output_duration_from_keep_segments(keep_nm)
+                        dur_tag = duration_before_after_tag(before, after_nm)
+                        output_path = Path(output_dir) / f"{run_prefix}_{dur_tag}_nomusic_nocut.mp4"
+                        render_keep_segments_video(
+                            str(processing_input), str(output_path), keep_nm
+                        )
+                        dbmod.upsert_job(
+                            conn,
+                            media_item_id,
+                            job_type=job_type,
+                            status="done",
+                            phase="done",
+                            phase_message="Fertig (Musik entfernt, ohne Stille-Schnitt)",
+                            progress=1.0,
+                            output_dir=str(output_dir),
+                            error=None,
+                        )
+                        dbmod.set_job_run_metrics(
+                            conn,
+                            media_item_id,
+                            outputs_created=1,
+                            openai_input_seconds=None,
+                            openai_cost_usd=None,
+                            cut_input_seconds=before,
+                            cut_output_seconds=after_nm,
+                        )
+                        return
                     dur_tag = duration_before_after_tag(before, before)
                     output_path = Path(output_dir) / f"{run_prefix}_{dur_tag}_nocut.mp4"
                     copy_cmd = [
@@ -512,6 +573,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 selected_profiles,
                 override_merge_gap_sec=cut_merge_gap_sec,
                 override_min_keep_sec=cut_min_duration_sec,
+                additional_remove_intervals=music_intervals or None,
             )
             best_before: float | None = None
             best_after: float | None = None
@@ -558,6 +620,65 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 )
                 return
             from ai_clips_maker.pipeline.export_clips import run_clips_pipeline
+            from webapp.silence_remover import build_keep_segments, probe_duration_seconds, render_keep_segments_video
+
+            clip_input: Path = processing_input
+            if music_intervals:
+                dbmod.upsert_job(
+                    conn,
+                    media_item_id,
+                    job_type=job_type,
+                    status="running",
+                    phase="music_cut",
+                    phase_message="Musik wird für KI-Pipeline entfernt",
+                    progress=0.36,
+                )
+                tot = probe_duration_seconds(str(processing_input))
+                keep_m = build_keep_segments(
+                    tot, music_intervals, padding_sec=0.0, min_keep_sec=0.12
+                )
+                if not keep_m:
+                    dbmod.upsert_job(
+                        conn,
+                        media_item_id,
+                        job_type=job_type,
+                        status="failed",
+                        phase="failed",
+                        phase_message="Kein Inhalt nach Musik-Entfernung",
+                        progress=1.0,
+                        error="Music removal left no segments for the clip pipeline. Try without 'Remove music'.",
+                    )
+                    return
+                music_stripped = settings.cache_dir / f"{media_item_id}_nomusic{ext}"
+                try:
+                    render_keep_segments_video(
+                        str(processing_input), str(music_stripped), keep_m
+                    )
+                except Exception as exc:
+                    dbmod.upsert_job(
+                        conn,
+                        media_item_id,
+                        job_type=job_type,
+                        status="failed",
+                        phase="failed",
+                        phase_message="Musik-Entfernung fehlgeschlagen",
+                        progress=1.0,
+                        error=str(exc),
+                    )
+                    return
+                if not music_stripped.is_file():
+                    dbmod.upsert_job(
+                        conn,
+                        media_item_id,
+                        job_type=job_type,
+                        status="failed",
+                        phase="failed",
+                        phase_message="Musik-Entfernung ungültig",
+                        progress=1.0,
+                        error="Stripped video file missing after music removal.",
+                    )
+                    return
+                clip_input = music_stripped
 
             def on_progress(phase: str, message: str, progress: float | None) -> None:
                 dbmod.upsert_job(
@@ -571,7 +692,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 )
 
             result = run_clips_pipeline(
-                str(processing_input),
+                str(clip_input),
                 str(output_dir),
                 token,
                 source_metadata=meta,
@@ -685,6 +806,19 @@ def _parse_duration_from_name(path: str | Path) -> tuple[float, float] | None:
     if before <= 0 or after < 0:
         return None
     return before, after
+
+
+def _is_remove_music_enabled(options_raw: str | None) -> bool:
+    try:
+        options = json.loads(options_raw or "{}")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return False
+    value = options.get("remove_music", False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _is_noise_reduction_enabled(options_raw: str | None) -> bool:

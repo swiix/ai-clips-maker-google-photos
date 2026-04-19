@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import re
 import subprocess
 from pathlib import Path
+from typing import Optional, Sequence
 
 
 @dataclass(frozen=True)
@@ -244,6 +245,7 @@ def remove_silence_selected_profiles(
     profile_names: list[str] | None = None,
     override_min_keep_sec: float | None = None,
     override_merge_gap_sec: float | None = None,
+    additional_remove_intervals: Optional[Sequence[tuple[float, float]]] = None,
 ) -> list[RenderedProfile]:
     selected = set(profile_names or [])
     profiles = [p for p in PROFILES if not selected or p.name in selected]
@@ -269,6 +271,21 @@ def remove_silence_selected_profiles(
             if override_min_keep_sec is not None
             else profile.min_keep_sec,
         )
+        if additional_remove_intervals:
+            from webapp.music_remover import subtract_intervals_from_keep
+
+            mk = max(0.01, float(override_min_keep_sec)) if override_min_keep_sec is not None else profile.min_keep_sec
+            keep = subtract_intervals_from_keep(
+                keep,
+                additional_remove_intervals,
+                total_duration=total,
+                min_keep_sec=mk,
+            )
+            if not keep:
+                raise RuntimeError(
+                    "Silence removal left no segments after cutting detected music. "
+                    "Disable 'Remove music' or lower detection sensitivity."
+                )
         if override_merge_gap_sec is not None:
             keep = merge_keep_segments_by_gap(keep, max(0.0, float(override_merge_gap_sec)))
         after = output_duration_from_keep_segments(keep)

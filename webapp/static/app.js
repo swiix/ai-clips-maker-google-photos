@@ -25,6 +25,7 @@ const STORAGE_KEYS = {
   cutMergeGapSec: "ai_clips_cut_merge_gap_sec",
   cutMinDurationSec: "ai_clips_cut_min_duration_sec",
   noiseReductionMode: "ai_clips_noise_reduction_mode",
+  removeMusic: "ai_clips_remove_music",
   trimMethod: "ai_clips_trim_method",
   visibleTrimModes: "ai_clips_visible_trim_modes",
   tinderSort: "ai_clips_tinder_sort",
@@ -273,6 +274,12 @@ function restoreCutTuningFromStorage() {
       modeSelect.value = savedMode;
     }
   }
+  const removeMusicCb = $("#remove-music-enabled");
+  if (removeMusicCb) {
+    const savedRm = window.localStorage.getItem(STORAGE_KEYS.removeMusic);
+    if (savedRm === "1" || savedRm === "true") removeMusicCb.checked = true;
+    if (savedRm === "0" || savedRm === "false") removeMusicCb.checked = false;
+  }
 }
 
 function persistCutTuningToStorage(gapSec, minDurationSec) {
@@ -308,6 +315,12 @@ function persistNoiseModeToStorage(mode) {
   if (!["auto", "mild", "strong"].includes(normalized)) return;
   try {
     window.localStorage.setItem(STORAGE_KEYS.noiseReductionMode, normalized);
+  } catch (_) {}
+}
+
+function persistRemoveMusicToStorage(enabled) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.removeMusic, enabled ? "1" : "0");
   } catch (_) {}
 }
 
@@ -1396,8 +1409,10 @@ $("#run-selected").addEventListener("click", async () => {
   const cutMinDurationSec = parsePositiveTuningValue($("#openai-min-segment-sec")?.value, 0.04);
   const noiseReductionEnabled = Boolean($("#noise-reduction-enabled")?.checked);
   const noiseReductionMode = ($("#noise-reduction-mode")?.value || "auto").toLowerCase();
+  const removeMusicEnabled = Boolean($("#remove-music-enabled")?.checked);
   persistCutTuningToStorage(cutMergeGapSec, cutMinDurationSec);
   persistNoiseModeToStorage(noiseReductionMode);
+  persistRemoveMusicToStorage(removeMusicEnabled);
   persistTrimMethodToStorage(trimMethod);
 
   const selectedItems = Array.from(state.selected.values());
@@ -1461,6 +1476,7 @@ $("#run-selected").addEventListener("click", async () => {
             cut_min_duration_sec: cutMinDurationSec,
             noise_reduction: noise.enabled,
             noise_reduction_mode: noise.mode,
+            remove_music: removeMusicEnabled,
           }),
         });
         const j = await r.json();
@@ -1479,6 +1495,7 @@ $("#run-selected").addEventListener("click", async () => {
         cut_min_duration_sec: cutMinDurationSec,
         noise_reduction: noiseReductionEnabled,
         noise_reduction_mode: noiseReductionMode,
+        remove_music: removeMusicEnabled,
       }),
     });
     const j = await r.json();
@@ -1491,7 +1508,7 @@ $("#run-selected").addEventListener("click", async () => {
   loadJobs();
   const jobsStatus = $("#jobs-status");
   if (jobsStatus) {
-    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise Reduction: ${noiseReductionEnabled ? `an (${noiseReductionMode})` : "aus"}): ${queuedCount} eingereiht, ${Math.max(skippedCount, localSkipped)} übersprungen${notReadyInfo}`;
+    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise: ${noiseReductionEnabled ? noiseReductionMode : "aus"}, Musik entfernen: ${removeMusicEnabled ? "an" : "aus"}): ${queuedCount} eingereiht, ${Math.max(skippedCount, localSkipped)} übersprungen${notReadyInfo}`;
   }
 });
 
@@ -2791,6 +2808,9 @@ startCachePolling();
 restoreTinderQueueSettings();
 applyVisibleTrimModesToDropdown();
 restoreCutTuningFromStorage();
+$("#remove-music-enabled")?.addEventListener("change", () => {
+  persistRemoveMusicToStorage(Boolean($("#remove-music-enabled")?.checked));
+});
 updateOpenAiTuningVisibility();
 loadTinderStateFromStorage();
 migrateLegacyTinderKeys();

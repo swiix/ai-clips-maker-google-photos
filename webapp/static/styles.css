@@ -156,6 +156,23 @@ main {
   margin: 0;
 }
 
+.remove-music-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+  color: var(--text);
+  background: rgba(123, 31, 162, 0.1);
+  font-size: 0.86rem;
+  user-select: none;
+}
+
+.remove-music-toggle input {
+  margin: 0;
+}
+
 .noise-reduction-mode {
   display: inline-flex;
   align-items: center;
