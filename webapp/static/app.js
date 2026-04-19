@@ -35,6 +35,7 @@ const STORAGE_KEYS = {
   tinderLikes: "ai_clips_tinder_likes",
   tinderDownloaded: "ai_clips_tinder_downloaded",
   tinderDecisions: "ai_clips_tinder_decisions",
+  sileroVadThreshold: "ai_clips_silero_vad_threshold",
 };
 const TRIM_METHOD_OPTIONS = [
   { value: "none", label: "Kein Schnitt · Original" },
@@ -282,6 +283,11 @@ function restoreCutTuningFromStorage() {
     if (savedRm === "1" || savedRm === "true") removeMusicCb.checked = true;
     if (savedRm === "0" || savedRm === "false") removeMusicCb.checked = false;
   }
+  const sileroThr = $("#silero-vad-threshold");
+  if (sileroThr) {
+    const savedSt = window.localStorage.getItem(STORAGE_KEYS.sileroVadThreshold);
+    if (savedSt !== null && savedSt !== "") sileroThr.value = String(parseSileroVadThreshold(savedSt, 0.5));
+  }
 }
 
 function persistCutTuningToStorage(gapSec, minDurationSec) {
@@ -310,6 +316,27 @@ function parsePositiveTuningValue(value, fallback) {
   const parsed = Number(normalized);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
   return fallback;
+}
+
+/** Clamp Silero speech-probability threshold to [0, 1]. */
+function parseSileroVadThreshold(value, fallback = 0.5) {
+  const normalized = String(value ?? "").trim().replace(",", ".");
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(1, Math.max(0, parsed));
+}
+
+function persistSileroVadThresholdToStorage(value) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.sileroVadThreshold, String(parseSileroVadThreshold(value)));
+  } catch (_) {}
+}
+
+function updateSileroVadPanelVisibility() {
+  const panel = $("#silero-vad-panel");
+  if (!panel) return;
+  const trim = ($("#trim-method")?.value || "").toLowerCase();
+  panel.classList.toggle("hidden", trim !== "silero_vad");
 }
 
 function persistNoiseModeToStorage(mode) {
@@ -471,6 +498,7 @@ function updateOpenAiTuningVisibility() {
   const box = $("#openai-tuning");
   if (!box) return;
   box.classList.remove("hidden");
+  updateSileroVadPanelVisibility();
 }
 
 function countActiveDownloads(items) {
@@ -1430,6 +1458,23 @@ $("#trim-method").addEventListener("change", () => {
   updateOpenAiTuningVisibility();
   persistTrimMethodToStorage($("#trim-method")?.value);
 });
+$("#silero-wind-preset-btn")?.addEventListener("click", () => {
+  const nr = $("#noise-reduction-enabled");
+  const mode = $("#noise-reduction-mode");
+  if (nr) nr.checked = true;
+  if (mode) {
+    mode.value = "strong";
+    persistNoiseModeToStorage("strong");
+  }
+  const st = $("#media-status");
+  if (st) st.textContent = "Preset: Noise Reduction an, Modus Strong.";
+});
+const sileroVadThresholdInput = $("#silero-vad-threshold");
+const persistSileroThresholdNow = () => persistSileroVadThresholdToStorage(sileroVadThresholdInput?.value);
+if (sileroVadThresholdInput) {
+  sileroVadThresholdInput.addEventListener("change", persistSileroThresholdNow);
+  sileroVadThresholdInput.addEventListener("blur", persistSileroThresholdNow);
+}
 const mergeGapInput = $("#openai-merge-gap-sec");
 const minDurationInput = $("#openai-min-segment-sec");
 const persistCurrentCutTuning = () => {
@@ -1468,6 +1513,7 @@ $("#run-selected").addEventListener("click", async () => {
   persistNoiseModeToStorage(noiseReductionMode);
   persistRemoveMusicToStorage(removeMusicEnabled);
   persistTrimMethodToStorage(trimMethod);
+  persistSileroVadThresholdToStorage($("#silero-vad-threshold")?.value);
 
   const selectedItems = Array.from(state.selected.values());
   const sourceItems = selectedItems.length ? selectedItems : visibleItems();
@@ -1525,18 +1571,22 @@ $("#run-selected").addEventListener("click", async () => {
           // Dedicated synthetic IDs allow matrix testing jobs per source video.
           id: `${method}__${noise.key}__${it.id}`,
         }));
+        const payloadTesting = {
+          items: taggedItems,
+          trim_method: method,
+          cut_merge_gap_sec: cutMergeGapSec,
+          cut_min_duration_sec: cutMinDurationSec,
+          noise_reduction: noise.enabled,
+          noise_reduction_mode: noise.mode,
+          remove_music: removeMusicEnabled,
+        };
+        if (method === "silero_vad") {
+          payloadTesting.silero_vad_threshold = parseSileroVadThreshold($("#silero-vad-threshold")?.value);
+        }
         const r = await fetch("/api/jobs/silence-remove", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: taggedItems,
-            trim_method: method,
-            cut_merge_gap_sec: cutMergeGapSec,
-            cut_min_duration_sec: cutMinDurationSec,
-            noise_reduction: noise.enabled,
-            noise_reduction_mode: noise.mode,
-            remove_music: removeMusicEnabled,
-          }),
+          body: JSON.stringify(payloadTesting),
         });
         const j = await r.json();
         queuedCount += Number((j.queued_job_ids || []).length || 0);
@@ -1544,18 +1594,22 @@ $("#run-selected").addEventListener("click", async () => {
       }
     }
   } else {
+    const payloadRun = {
+      items,
+      trim_method: trimMethod,
+      cut_merge_gap_sec: cutMergeGapSec,
+      cut_min_duration_sec: cutMinDurationSec,
+      noise_reduction: noiseReductionEnabled,
+      noise_reduction_mode: noiseReductionMode,
+      remove_music: removeMusicEnabled,
+    };
+    if (trimMethod === "silero_vad") {
+      payloadRun.silero_vad_threshold = parseSileroVadThreshold($("#silero-vad-threshold")?.value);
+    }
     const r = await fetch("/api/jobs/silence-remove", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        items,
-        trim_method: trimMethod,
-        cut_merge_gap_sec: cutMergeGapSec,
-        cut_min_duration_sec: cutMinDurationSec,
-        noise_reduction: noiseReductionEnabled,
-        noise_reduction_mode: noiseReductionMode,
-        remove_music: removeMusicEnabled,
-      }),
+      body: JSON.stringify(payloadRun),
     });
     const j = await r.json();
     queuedCount = Number((j.queued_job_ids || []).length || 0);

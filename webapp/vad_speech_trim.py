@@ -158,13 +158,16 @@ def trim_video_silero_vad(
     *,
     merge_gap_sec: float = 0.35,
     min_segment_sec: float = 0.04,
+    vad_threshold: Optional[float] = None,
     music_exclude_intervals: Optional[Sequence[tuple[float, float]]] = None,
 ) -> dict[str, Any]:
     """Export a single MP4 containing only VAD-detected speech segments."""
+    thr = 0.5 if vad_threshold is None else float(vad_threshold)
     keep, total = speech_keep_segments_from_video(
         input_video,
         merge_gap_sec=merge_gap_sec,
         min_segment_sec=min_segment_sec,
+        vad_threshold=thr,
         music_exclude_intervals=music_exclude_intervals,
     )
     out_dur = output_duration_from_keep_segments(keep)

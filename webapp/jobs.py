@@ -554,6 +554,15 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                     min_seg = (
                         cut_min_duration_sec if cut_min_duration_sec is not None else 0.04
                     )
+                    vad_thr: float | None = None
+                    try:
+                        raw_thr = options.get("silero_vad_threshold")
+                        if raw_thr is not None:
+                            v = float(raw_thr)
+                            if 0.0 <= v <= 1.0:
+                                vad_thr = v
+                    except (TypeError, ValueError):
+                        vad_thr = None
                     dbmod.upsert_job(
                         conn,
                         media_item_id,
@@ -572,6 +581,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                             run_prefix,
                             merge_gap_sec=merge_gap,
                             min_segment_sec=min_seg,
+                            vad_threshold=vad_thr,
                             music_exclude_intervals=music_intervals or None,
                         )
                     except Exception as exc:

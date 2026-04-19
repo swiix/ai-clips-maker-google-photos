@@ -249,6 +249,12 @@ class EnqueueBody(BaseModel):
     noise_reduction: Optional[bool] = True
     noise_reduction_mode: Optional[str] = "auto"
     remove_music: Optional[bool] = False
+    silero_vad_threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Silero VAD speech probability threshold (only used for trim_method=silero_vad).",
+    )
 
 
 class CacheClearAdvancedBody(BaseModel):
@@ -822,6 +828,8 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
             payload["cut_merge_gap_sec"] = cut_merge_gap_sec
         if cut_min_duration_sec is not None:
             payload["cut_min_duration_sec"] = cut_min_duration_sec
+        if body.silero_vad_threshold is not None:
+            payload["silero_vad_threshold"] = float(body.silero_vad_threshold)
         return json.dumps(payload, ensure_ascii=True)
 
     if raw == "openai_speech":

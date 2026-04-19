@@ -64,6 +64,17 @@
           </label>
           <span class="openai-tuning-help" title="Richtwert: Bei unruhigem Schnitt zuerst Min-Dauer erhöhen, danach Merge-Gap leicht erhöhen. Gilt für alle Modi.">?</span>
         </div>
+        <div id="silero-vad-panel" class="silero-vad-panel hidden" aria-live="polite">
+          <div class="silero-wind-hint muted">
+            <strong>Fahrt / Wind:</strong>
+            Für stabilere Spracherkennung Noise Reduction <strong>einschalten</strong> und Modus <strong>Strong</strong> empfehlen wir bei Roller, MTB oder Zugluft.
+            <button type="button" id="silero-wind-preset-btn" class="btn">Preset: NR an · Strong</button>
+          </div>
+          <label class="silero-threshold-field" title="Silero klassifiziert kurze Fenster als Sprache, wenn die Wahrscheinlichkeit über diesem Wert liegt. Niedriger (z. B. 0.35) = mehr/leisere Sprache erkannt; höher (z. B. 0.65) = weniger Fehl-Treffer durch Wind.">
+            VAD-Schwelle (0–1)
+            <input type="number" id="silero-vad-threshold" min="0" max="1" step="0.05" value="0.5" />
+          </label>
+        </div>
         <button type="button" id="select-all" class="btn">Alle sichtbaren</button>
         <button type="button" id="clear-sel" class="btn">Auswahl leeren</button>
         <button type="button" id="run-selected" class="btn primary">Verarbeitung starten</button>
@@ -296,6 +307,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=silero-vad1" defer></script>
+  <script src="/static/app.js?v=silero-vad-preset-threshold2" defer></script>
 </body>
 </html>
