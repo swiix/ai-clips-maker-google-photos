@@ -133,10 +133,105 @@ function persistTinderQueueSettings() {
   } catch (_) {}
 }
 
+/**
+ * Stable id for TinderWatch: derived only from the gallery file path (not folder/index).
+ * Legacy keys used folder::index::url — when orphan index order changed, the same mp4 got a new key and looked "open" again.
+ */
+function normalizeGalleryRelativePath(videoUrl) {
+  const s = String(videoUrl || "").trim();
+  if (!s) return "";
+  const marker = "/api/gallery/file/";
+  let path = s;
+  const direct = path.indexOf(marker);
+  if (direct >= 0) {
+    path = path.slice(direct + marker.length);
+  } else {
+    try {
+      const u = new URL(s, window.location.origin);
+      let p = u.pathname || "";
+      const i = p.indexOf(marker);
+      if (i >= 0) p = p.slice(i + marker.length);
+      path = p;
+    } catch {
+      return "";
+    }
+  }
+  try {
+    return decodeURIComponent(path.split("?")[0]).replace(/\\/g, "/").replace(/^\/+/, "");
+  } catch {
+    return path.split("?")[0].replace(/\\/g, "/").replace(/^\/+/, "");
+  }
+}
+
+function tinderStableClipKey(videoUrl) {
+  const path = normalizeGalleryRelativePath(videoUrl);
+  return path ? `v:${path}` : "";
+}
+
+function resolveTinderDecision(clip) {
+  if (!clip) return null;
+  const direct = state.tinderDecisions.get(clip.key);
+  if (direct) return direct;
+  const stable = clip.video_url ? tinderStableClipKey(clip.video_url) : "";
+  if (stable && stable !== clip.key) return state.tinderDecisions.get(stable);
+  return null;
+}
+
+function migrateLegacyTinderKeys() {
+  let changed = false;
+  const decisionEntries = [...state.tinderDecisions.entries()];
+  for (const [key, review] of decisionEntries) {
+    if (String(key).startsWith("v:")) continue;
+    const idx = String(key).indexOf("/api/gallery/file/");
+    if (idx < 0) continue;
+    const urlPart = String(key).slice(idx);
+    const stable = tinderStableClipKey(urlPart);
+    if (!stable) continue;
+    if (!state.tinderDecisions.has(stable)) {
+      state.tinderDecisions.set(stable, {
+        ...review,
+        key: stable,
+        video_url: review.video_url || urlPart,
+      });
+    }
+    state.tinderDecisions.delete(key);
+    changed = true;
+  }
+  const likeEntries = [...state.tinderLikes.entries()];
+  for (const [key, like] of likeEntries) {
+    if (String(key).startsWith("v:")) continue;
+    const idx = String(key).indexOf("/api/gallery/file/");
+    if (idx < 0) continue;
+    const urlPart = String(key).slice(idx);
+    const stable = tinderStableClipKey(urlPart);
+    if (!stable) continue;
+    if (!state.tinderLikes.has(stable)) {
+      state.tinderLikes.set(stable, { ...like, key: stable, video_url: like.video_url || urlPart });
+    }
+    state.tinderLikes.delete(key);
+    changed = true;
+  }
+  const dlEntries = [...state.tinderDownloaded.entries()];
+  for (const [key, dl] of dlEntries) {
+    if (String(key).startsWith("v:")) continue;
+    const idx = String(key).indexOf("/api/gallery/file/");
+    if (idx < 0) continue;
+    const urlPart = String(key).slice(idx);
+    const stable = tinderStableClipKey(urlPart);
+    if (!stable) continue;
+    if (!state.tinderDownloaded.has(stable)) {
+      state.tinderDownloaded.set(stable, dl);
+    }
+    state.tinderDownloaded.delete(key);
+    changed = true;
+  }
+  if (changed) persistTinderState();
+}
+
 function computeUnseenFromClips(clips) {
   let unseen = 0;
   for (const clip of clips || []) {
-    if (!state.tinderDecisions.get(clip.key)) unseen += 1;
+    if (!isReviewedDecision(resolveTinderDecision(clip)?.decision)) unseen += 1;
   }
   return unseen;
 }
@@ -1888,13 +1983,18 @@ async function syncLocalTinderStateToServer(serverRows) {
 
 function applyServerTinderReviews(rows) {
   for (const row of rows || []) {
-    const key = String(row.clip_key || "");
-    if (!key) continue;
+    const primaryKey = String(row.clip_key || "");
+    if (!primaryKey) continue;
+    const stable = row.video_url ? tinderStableClipKey(row.video_url) : "";
+    const aliasKeys = new Set([primaryKey]);
+    if (stable) aliasKeys.add(stable);
+
     const decision = String(row.decision || "").toLowerCase();
     const downloaded = Boolean(Number(row.downloaded || 0));
+    const decidedAt = new Date(Number(row.updated_at || Date.now() / 1000) * 1000).toISOString();
+
     if (decision === "like") {
-      state.tinderLikes.set(key, {
-        key,
+      const likeBase = {
         jobId: row.job_id || null,
         mediaItemId: row.media_item_id || null,
         folder: row.folder || "",
@@ -1903,26 +2003,35 @@ function applyServerTinderReviews(rows) {
         begin_sec: row.begin_sec ?? 0,
         finish_sec: row.finish_sec ?? 0,
         video_url: row.video_url || "",
-        liked_at: new Date(Number(row.updated_at || Date.now() / 1000) * 1000).toISOString(),
-      });
+        liked_at: decidedAt,
+      };
+      for (const k of aliasKeys) {
+        state.tinderLikes.set(k, { ...likeBase, key: k });
+      }
     }
     if (decision === "like" || decision === "dislike") {
-      state.tinderDecisions.set(key, {
-        key,
+      const revBase = {
         decision,
         jobId: row.job_id || null,
         mediaItemId: row.media_item_id || null,
         trimMode: row.trim_mode || "unknown",
         sourceFilename: row.source_filename || "",
         folder: row.folder || "",
-        decided_at: new Date(Number(row.updated_at || Date.now() / 1000) * 1000).toISOString(),
-      });
+        video_url: row.video_url || "",
+        decided_at: decidedAt,
+      };
+      for (const k of aliasKeys) {
+        state.tinderDecisions.set(k, { ...revBase, key: k });
+      }
     }
     if (downloaded) {
-      state.tinderDownloaded.set(key, {
+      const dl = {
         downloaded: true,
-        downloaded_at: new Date(Number(row.updated_at || Date.now() / 1000) * 1000).toISOString(),
-      });
+        downloaded_at: decidedAt,
+      };
+      for (const k of aliasKeys) {
+        state.tinderDownloaded.set(k, dl);
+      }
     }
   }
 }
@@ -1934,6 +2043,7 @@ async function hydrateTinderStateFromServer() {
     const rows = await r.json();
     await syncLocalTinderStateToServer(rows);
     applyServerTinderReviews(rows);
+    migrateLegacyTinderKeys();
     persistTinderState();
   } catch (_) {}
 }
@@ -2029,8 +2139,10 @@ function flattenGalleryClips(entries) {
     const sourceType = entry.folder === "legacy_outputs" ? "legacy" : "jobs";
     for (const clip of entry.clips || []) {
       if (!clip.video_url) continue;
+      const stableKey = tinderStableClipKey(clip.video_url);
+      const legacyComposite = `${entry.folder || "folder"}::${clip.index || 0}::${clip.video_url}`;
       clips.push({
-        key: `${entry.folder || "folder"}::${clip.index || 0}::${clip.video_url}`,
+        key: stableKey || legacyComposite,
         sourceType,
         jobId: Number((entry.source && entry.source.jobId) || null) || null,
         mediaItemId:
@@ -2067,7 +2179,7 @@ function isReviewedDecision(value) {
 }
 
 function filterUnreviewedClips(clips) {
-  return (clips || []).filter((clip) => !isReviewedDecision(state.tinderDecisions.get(clip.key)?.decision));
+  return (clips || []).filter((clip) => !isReviewedDecision(resolveTinderDecision(clip)?.decision));
 }
 
 function applyTinderQueueFromAllClips() {
@@ -2162,6 +2274,7 @@ async function markTinderDecision(clip, decision) {
     trimMode: clip.trimMode || "unknown",
     sourceFilename: clip.sourceFilename || "",
     folder: clip.folder || "",
+    video_url: clip.video_url || "",
     decided_at: new Date().toISOString(),
   });
   persistTinderState();
@@ -2193,7 +2306,14 @@ function triggerClipDownload(clip) {
 function renderTinderLikesList() {
   const root = $("#tinder-likes-list");
   if (!root) return;
+  const seenStable = new Set();
   const likes = Array.from(state.tinderLikes.values())
+    .filter((like) => {
+      const dedupeId = (like.video_url && tinderStableClipKey(like.video_url)) || like.key;
+      if (seenStable.has(dedupeId)) return false;
+      seenStable.add(dedupeId);
+      return true;
+    })
     .filter((like) => {
       const downloaded = Boolean(state.tinderDownloaded.get(like.key)?.downloaded);
       if (state.tinderLikeFilter === "downloaded") return downloaded;
@@ -2673,6 +2793,7 @@ applyVisibleTrimModesToDropdown();
 restoreCutTuningFromStorage();
 updateOpenAiTuningVisibility();
 loadTinderStateFromStorage();
+migrateLegacyTinderKeys();
 hydrateTinderStateFromServer().then(() => {
   renderTinderStats();
   refreshTinderwatchBadgeFromServer();
