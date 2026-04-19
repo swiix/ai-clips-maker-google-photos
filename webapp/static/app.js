@@ -28,6 +28,7 @@ const STORAGE_KEYS = {
   removeMusic: "ai_clips_remove_music",
   trimMethod: "ai_clips_trim_method",
   visibleTrimModes: "ai_clips_visible_trim_modes",
+  visibleNoiseTestingVariants: "ai_clips_visible_noise_testing_variants",
   tinderSort: "ai_clips_tinder_sort",
   tinderMinSavedSec: "ai_clips_tinder_min_saved_sec",
   tinderMinSavedPct: "ai_clips_tinder_min_saved_pct",
@@ -376,13 +377,39 @@ function getActiveTestingMethods() {
   return getVisibleTrimModes().filter((m) => m !== "all_methods_testing");
 }
 
+/** Variants for Testing Mode matrix (trim method × noise); keys used in synthetic media ids. */
+const NOISE_TESTING_VARIANTS = [
+  { key: "nr_off", enabled: false, mode: "auto", label: "Noise Reduction aus" },
+  { key: "nr_auto", enabled: true, mode: "auto", label: "Noise Mode · Auto" },
+  { key: "nr_mild", enabled: true, mode: "mild", label: "Noise Mode · Mild" },
+  { key: "nr_strong", enabled: true, mode: "strong", label: "Noise Mode · Strong" },
+];
+
+function getVisibleNoiseTestingKeys() {
+  const allKeys = NOISE_TESTING_VARIANTS.map((v) => v.key);
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.visibleNoiseTestingVariants);
+    if (!raw) return allKeys;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return allKeys;
+    const valid = parsed
+      .map((x) => String(x || "").trim())
+      .filter((k) => allKeys.includes(k));
+    return valid.length ? Array.from(new Set(valid)) : allKeys;
+  } catch (_) {
+    return allKeys;
+  }
+}
+
+function persistVisibleNoiseTestingVariants(keys) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.visibleNoiseTestingVariants, JSON.stringify(keys));
+  } catch (_) {}
+}
+
 function getTestingNoiseVariants() {
-  return [
-    { key: "nr_off", enabled: false, mode: "auto", label: "off" },
-    { key: "nr_auto", enabled: true, mode: "auto", label: "auto" },
-    { key: "nr_mild", enabled: true, mode: "mild", label: "mild" },
-    { key: "nr_strong", enabled: true, mode: "strong", label: "strong" },
-  ];
+  const allow = new Set(getVisibleNoiseTestingKeys());
+  return NOISE_TESTING_VARIANTS.filter((v) => allow.has(v.key));
 }
 
 function renderTrimModeSettings() {
@@ -409,6 +436,32 @@ function renderTrimModeSettings() {
       persistVisibleTrimModes(checked);
       applyVisibleTrimModesToDropdown();
       updateOpenAiTuningVisibility();
+    });
+  });
+}
+
+function renderNoiseModeSettings() {
+  const root = $("#settings-noise-testing-modes");
+  if (!root) return;
+  const visible = new Set(getVisibleNoiseTestingKeys());
+  root.innerHTML = "";
+  for (const v of NOISE_TESTING_VARIANTS) {
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" data-noise-variant="${escapeHtml(v.key)}" ${
+      visible.has(v.key) ? "checked" : ""
+    } /> ${escapeHtml(v.label)}`;
+    root.appendChild(label);
+  }
+  root.querySelectorAll("input[data-noise-variant]").forEach((node) => {
+    node.addEventListener("change", () => {
+      const checked = Array.from(root.querySelectorAll("input[data-noise-variant]:checked")).map((x) =>
+        String(x.getAttribute("data-noise-variant") || "")
+      );
+      if (!checked.length) {
+        node.checked = true;
+        return;
+      }
+      persistVisibleNoiseTestingVariants(checked);
     });
   });
 }
@@ -1459,6 +1512,11 @@ $("#run-selected").addEventListener("click", async () => {
       return;
     }
     const noiseVariants = getTestingNoiseVariants();
+    if (!noiseVariants.length) {
+      $("#media-status").textContent =
+        "Testing Mode: Keine Noise-Varianten gewählt. Aktiviere mindestens eine unter Settings · Noise-Varianten im Testing Mode.";
+      return;
+    }
     for (const method of methods) {
       for (const noise of noiseVariants) {
         const taggedItems = items.map((it) => ({
@@ -2730,6 +2788,7 @@ document.querySelector('[data-tab="cuts"]').addEventListener("click", () => {
 document.querySelector('[data-tab="settings"]').addEventListener("click", () => {
   loadSettingsCacheSummary();
   renderTrimModeSettings();
+  renderNoiseModeSettings();
 });
 
 const refreshStats = $("#refresh-stats");
@@ -2824,4 +2883,5 @@ updateTinderLikeFilterButton();
 renderTinderStats();
 updateSettingsDaysButtons();
 renderTrimModeSettings();
+renderNoiseModeSettings();
 refreshTinderwatchBadgeFromServer();
