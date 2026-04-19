@@ -14,7 +14,7 @@ import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any, Optional, List
+from typing import Annotated, Any, List, Optional, Tuple
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
@@ -86,7 +86,7 @@ def _ensure_ffmpeg_on_path() -> None:
 _ensure_ffmpeg_on_path()
 
 _oauth_states: dict[str, float] = {}
-_scheduler: BackgroundScheduler | None = None
+_scheduler: Optional[BackgroundScheduler] = None
 _preflight_cache: dict[str, Any] = {"ts": 0.0, "result": None}
 _gallery_cache: dict[str, dict[str, Any]] = {}
 _GALLERY_CACHE_TTL_SEC = 12.0
@@ -219,7 +219,7 @@ def _scheduled_poll(settings: Settings) -> None:
         )
 
 
-def _cache_target_path(settings: Settings, media_item_id: str, filename: str | None) -> Path:
+def _cache_target_path(settings: Settings, media_item_id: str, filename: Optional[str]) -> Path:
     ext = Path(filename or "video.mp4").suffix or ".mp4"
     safe_id = "".join(ch for ch in media_item_id if ch.isalnum() or ch in ("-", "_"))
     if not safe_id:
@@ -661,7 +661,7 @@ async def upload_transcription_audio(
     conn: DbDep,
     file: UploadFile = File(...),
     model: str = Query(default="whisper-1"),
-    language: str | None = Query(default=None),
+    language: Optional[str] = Query(default=None),
 ) -> TranscriptionCreateOut:
     filename = str(file.filename or "").strip()
     if not filename:
@@ -723,9 +723,9 @@ _STATS_METHOD_LABELS_DE: dict[str, str] = {
 }
 
 
-def _extract_cut_tuning_from_body(body: EnqueueBody) -> tuple[float | None, float | None]:
-    cut_merge_gap_sec: float | None = None
-    cut_min_duration_sec: float | None = None
+def _extract_cut_tuning_from_body(body: EnqueueBody) -> Tuple[Optional[float], Optional[float]]:
+    cut_merge_gap_sec: Optional[float] = None
+    cut_min_duration_sec: Optional[float] = None
     for candidate in (body.cut_merge_gap_sec, body.openai_merge_gap_sec):
         if candidate is None:
             continue
@@ -1011,14 +1011,14 @@ def retry_failed_cached_jobs(conn: DbDep, settings: SettingsDep) -> dict[str, An
     }
 
 
-def _parse_duration_token(tok: str) -> float | None:
+def _parse_duration_token(tok: str) -> Optional[float]:
     try:
         return float(tok.replace("d", "."))
     except (TypeError, ValueError):
         return None
 
 
-def _find_cut_metrics_from_filenames(row: dict[str, Any], settings: Settings) -> tuple[float, float] | None:
+def _find_cut_metrics_from_filenames(row: dict[str, Any], settings: Settings) -> Optional[Tuple[float, float]]:
     out_raw = str(row.get("output_dir") or "").strip()
     if not out_raw:
         return None
@@ -1147,7 +1147,7 @@ def _build_gallery_entries(
     conn,
     *,
     include_orphans: bool,
-    max_clips: int | None = None,
+    max_clips: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     def _trim_mode_from_job(trim_method_label: Any, job_options: Any, job_type: Any) -> str:
         label = str(trim_method_label or "").strip().lower()
