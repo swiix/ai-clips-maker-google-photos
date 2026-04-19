@@ -75,7 +75,7 @@ def test_merge_transcript_segments_merges_small_gaps():
 def test_api_enqueue_silence_remove_job(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     conn.close()
 
     s = Settings(data_dir=tmp_path, output_dir=tmp_path / "outputs", cache_dir=tmp_path / "cache")
@@ -95,7 +95,7 @@ def test_api_enqueue_silence_remove_job(tmp_path: Path, monkeypatch):
     assert len(payload["queued_job_ids"]) == 1
 
     c2 = dbmod.connect(db_path)
-    dbmod.init_db(c2)
+    dbmod.prepare_database(c2)
     row = c2.execute("SELECT job_type, job_options FROM jobs WHERE media_item_id = 'm1'").fetchone()
     c2.close()
     assert row["job_type"] == "silence_remove"
@@ -105,7 +105,7 @@ def test_api_enqueue_silence_remove_job(tmp_path: Path, monkeypatch):
 def test_api_enqueue_clip_pipeline_persists_cut_controls(tmp_path: Path):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     conn.close()
 
     s = Settings(data_dir=tmp_path, output_dir=tmp_path / "outputs", cache_dir=tmp_path / "cache")
@@ -124,7 +124,7 @@ def test_api_enqueue_clip_pipeline_persists_cut_controls(tmp_path: Path):
     )
     assert resp.status_code == 200
     c2 = dbmod.connect(db_path)
-    dbmod.init_db(c2)
+    dbmod.prepare_database(c2)
     row = c2.execute("SELECT job_type, job_options FROM jobs WHERE media_item_id = 'm_pipe'").fetchone()
     c2.close()
     assert row["job_type"] == "clip_pipeline"
@@ -138,7 +138,7 @@ def test_api_enqueue_clip_pipeline_persists_cut_controls(tmp_path: Path):
 def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     conn.close()
 
     s = Settings(data_dir=tmp_path, output_dir=tmp_path / "outputs", cache_dir=tmp_path / "cache")
@@ -158,7 +158,7 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
     )
     assert resp.status_code == 200
     c2 = dbmod.connect(db_path)
-    dbmod.init_db(c2)
+    dbmod.prepare_database(c2)
     row = c2.execute("SELECT job_type, job_options FROM jobs WHERE media_item_id = 'm_openai'").fetchone()
     c2.close()
     assert row["job_type"] == "openai_speech_trim"
@@ -173,7 +173,7 @@ def test_api_enqueue_openai_trim_job(tmp_path: Path, monkeypatch):
 def test_api_requeues_done_silence_job(tmp_path: Path):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     conn.execute(
         """
         INSERT INTO jobs (
@@ -203,7 +203,7 @@ def test_api_requeues_done_silence_job(tmp_path: Path):
     assert len(payload["queued_job_ids"]) == 1
 
     c2 = dbmod.connect(db_path)
-    dbmod.init_db(c2)
+    dbmod.prepare_database(c2)
     row = c2.execute("SELECT status, phase FROM jobs WHERE media_item_id = 'm_done'").fetchone()
     c2.close()
     assert row["status"] == "queued"
@@ -213,7 +213,7 @@ def test_api_requeues_done_silence_job(tmp_path: Path):
 def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     dbmod.create_or_requeue_job(
         conn,
         "m2",
@@ -259,7 +259,7 @@ def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
 def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     dbmod.create_or_requeue_job(
         conn,
         "m3",
@@ -319,7 +319,7 @@ def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
 
 def test_get_trim_statistics_groups_methods(tmp_path: Path):
     conn = dbmod.connect(tmp_path / "stats.db")
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     now = 1.0
     conn.execute(
         """
@@ -355,7 +355,7 @@ def test_get_trim_statistics_groups_methods(tmp_path: Path):
 def test_api_stats_endpoint(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "app_stats.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     conn.execute(
         """
         INSERT INTO jobs (
@@ -371,7 +371,7 @@ def test_api_stats_endpoint(tmp_path: Path, monkeypatch):
 
     def fake_dep():
         c = dbmod.connect(db_path)
-        dbmod.init_db(c)
+        dbmod.prepare_database(c)
         try:
             yield c
         finally:
@@ -402,7 +402,7 @@ def test_api_job_latest_video_endpoint(tmp_path: Path):
 
     db_path = tmp_path / "app_jobs.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     conn.execute(
         """
         INSERT INTO jobs (
@@ -417,7 +417,7 @@ def test_api_job_latest_video_endpoint(tmp_path: Path):
 
     def fake_db_dep():
         c = dbmod.connect(db_path)
-        dbmod.init_db(c)
+        dbmod.prepare_database(c)
         try:
             yield c
         finally:
@@ -447,7 +447,7 @@ def test_api_jobs_enriches_cut_metrics_with_filename_fallback(tmp_path: Path):
 
     db_path = tmp_path / "app_jobs_metrics.db"
     conn = dbmod.connect(db_path)
-    dbmod.init_db(conn)
+    dbmod.prepare_database(conn)
     conn.execute(
         """
         INSERT INTO jobs (
@@ -462,7 +462,7 @@ def test_api_jobs_enriches_cut_metrics_with_filename_fallback(tmp_path: Path):
 
     def fake_db_dep():
         c = dbmod.connect(db_path)
-        dbmod.init_db(c)
+        dbmod.prepare_database(c)
         try:
             yield c
         finally:

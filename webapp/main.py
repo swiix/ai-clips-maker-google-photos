@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from webapp import db as dbmod
 from webapp import jobs as jobsmod
 from webapp import transcribe_jobs as transcribe_jobsmod
-from webapp.db import connect, init_db
+from webapp.db import connect, prepare_database
 from webapp.google_photos import (
     build_oauth_flow,
     ensure_fresh_credentials,
@@ -108,12 +108,12 @@ async def lifespan(app: FastAPI):
     settings.output_dir.mkdir(parents=True, exist_ok=True)
     settings.cache_dir.mkdir(parents=True, exist_ok=True)
     conn = connect(settings.sqlite_path)
-    init_db(conn)
+    prepare_database(conn)
     conn.close()
 
     def conn_factory():
         c = connect(settings.sqlite_path)
-        init_db(c)
+        prepare_database(c)
         return c
 
     jobsmod.start_worker(conn_factory, settings)
@@ -199,7 +199,7 @@ def _settings_dep() -> Settings:
 
 def _db_dep(settings: Annotated[Settings, Depends(_settings_dep)]):
     conn = connect(settings.sqlite_path)
-    init_db(conn)
+    prepare_database(conn)
     try:
         yield conn
     finally:

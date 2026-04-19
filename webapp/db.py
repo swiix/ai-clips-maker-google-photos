@@ -1,5 +1,41 @@
 from __future__ import annotations
 
+"""
+SQLite persistence for the web app.
+
+Schema versioning
+-----------------
+``schema_version`` (integer string) in ``sync_state`` records the applied
+migration level. Bump :data:`CURRENT_SCHEMA_VERSION` when adding a new
+``_migrate_vN`` step in :func:`apply_migrations`.
+
+Foreign keys are not enforced in SQLite (no ``PRAGMA foreign_keys``); relations
+between ``jobs`` and ``tinder_reviews`` are logical only.
+
+jobs
+----
+``id``, ``media_item_id`` (unique), ``job_type``, ``job_options``, ``filename``,
+``base_url``, ``product_url``, ``creation_time``, ``status``, ``phase``,
+``phase_message``, ``progress``, ``output_dir``, ``error``, ``created_at``,
+``updated_at``, ``trim_method_label``, ``outputs_created``,
+``openai_input_seconds``, ``openai_cost_usd``, ``cut_input_seconds``,
+``cut_output_seconds``.
+
+sync_state
+----------
+Arbitrary key/value pairs (Google sync cursor, schema version, etc.).
+
+tinder_reviews
+--------------
+``clip_key`` (PK), optional ``job_id`` / ``media_item_id``, ``decision``,
+``downloaded``, ``trim_mode``, ``source_filename``, ``folder``, ``video_url``,
+``begin_sec``, ``finish_sec``, ``created_at``, ``updated_at``.
+
+transcription_jobs
+------------------
+Standalone transcription queue rows with status and file paths.
+"""
+
 import json
 import sqlite3
 import threading
@@ -9,6 +45,29 @@ from typing import Any
 
 _lock = threading.Lock()
 
+# Stored in sync_state; increment when adding a new _migrate_vN branch.
+SCHEMA_VERSION_KEY = "schema_version"
+CURRENT_SCHEMA_VERSION = 1
+
+_JOBS_COLUMN_ALIASES_V1 = (
+    ("phase", "ALTER TABLE jobs ADD COLUMN phase TEXT"),
+    ("phase_message", "ALTER TABLE jobs ADD COLUMN phase_message TEXT"),
+    ("progress", "ALTER TABLE jobs ADD COLUMN progress REAL"),
+    ("job_type", "ALTER TABLE jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'clip_pipeline'"),
+    ("job_options", "ALTER TABLE jobs ADD COLUMN job_options TEXT"),
+    ("trim_method_label", "ALTER TABLE jobs ADD COLUMN trim_method_label TEXT"),
+    ("outputs_created", "ALTER TABLE jobs ADD COLUMN outputs_created INTEGER"),
+    ("openai_input_seconds", "ALTER TABLE jobs ADD COLUMN openai_input_seconds REAL"),
+    ("openai_cost_usd", "ALTER TABLE jobs ADD COLUMN openai_cost_usd REAL"),
+    ("cut_input_seconds", "ALTER TABLE jobs ADD COLUMN cut_input_seconds REAL"),
+    ("cut_output_seconds", "ALTER TABLE jobs ADD COLUMN cut_output_seconds REAL"),
+)
+
+_TINDER_COLUMN_ALIASES_V1 = (
+    ("job_id", "ALTER TABLE tinder_reviews ADD COLUMN job_id INTEGER"),
+    ("media_item_id", "ALTER TABLE tinder_reviews ADD COLUMN media_item_id TEXT"),
+)
+
 
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -17,7 +76,71 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {r[1] for r in rows}
+
+
+def _migrate_v1(conn: sqlite3.Connection) -> None:
+    """
+    Align legacy databases with the column set that newer clients expect.
+    Idempotent: only runs ALTER for missing columns.
+    """
+    cols = _table_columns(conn, "jobs")
+    for name, ddl in _JOBS_COLUMN_ALIASES_V1:
+        if name not in cols:
+            conn.execute(ddl)
+            cols.add(name)
+
+    if not _table_columns(conn, "tinder_reviews"):
+        return
+    tinder_cols = _table_columns(conn, "tinder_reviews")
+    for name, ddl in _TINDER_COLUMN_ALIASES_V1:
+        if name not in tinder_cols:
+            conn.execute(ddl)
+            tinder_cols.add(name)
+
+
+def _get_schema_version(conn: sqlite3.Connection) -> int:
+    row = conn.execute(
+        "SELECT value FROM sync_state WHERE key = ?", (SCHEMA_VERSION_KEY,)
+    ).fetchone()
+    if not row or row[0] is None:
+        return 0
+    try:
+        return int(str(row[0]).strip())
+    except ValueError:
+        return 0
+
+
+def _set_schema_version(conn: sqlite3.Connection, version: int) -> None:
+    conn.execute(
+        "INSERT INTO sync_state(key, value) VALUES(?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (SCHEMA_VERSION_KEY, str(version)),
+    )
+
+
+def apply_migrations(conn: sqlite3.Connection) -> None:
+    """Run incremental DDL from stored ``schema_version`` to :data:`CURRENT_SCHEMA_VERSION`."""
+    current = _get_schema_version(conn)
+    while current < CURRENT_SCHEMA_VERSION:
+        nxt = current + 1
+        if nxt == 1:
+            _migrate_v1(conn)
+        else:
+            raise RuntimeError(f"No SQLite migration implemented for schema version {nxt}")
+        _set_schema_version(conn, nxt)
+        current = nxt
+    conn.commit()
+
+
 def init_db(conn: sqlite3.Connection) -> None:
+    """
+    Create base tables and indexes. New installations get the full ``jobs``
+    definition in one statement; existing files are upgraded via
+    :func:`apply_migrations`.
+    """
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS jobs (
@@ -36,7 +159,13 @@ def init_db(conn: sqlite3.Connection) -> None:
             output_dir TEXT,
             error TEXT,
             created_at REAL,
-            updated_at REAL
+            updated_at REAL,
+            trim_method_label TEXT,
+            outputs_created INTEGER,
+            openai_input_seconds REAL,
+            openai_cost_usd REAL,
+            cut_input_seconds REAL,
+            cut_output_seconds REAL
         );
 
         CREATE TABLE IF NOT EXISTS sync_state (
@@ -84,35 +213,13 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_transcription_jobs_updated_at ON transcription_jobs(updated_at);
         """
     )
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)").fetchall()}
-    if "phase" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN phase TEXT")
-    if "phase_message" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN phase_message TEXT")
-    if "progress" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN progress REAL")
-    if "job_type" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'clip_pipeline'")
-    if "job_options" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN job_options TEXT")
-    if "trim_method_label" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN trim_method_label TEXT")
-    if "outputs_created" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN outputs_created INTEGER")
-    if "openai_input_seconds" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN openai_input_seconds REAL")
-    if "openai_cost_usd" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN openai_cost_usd REAL")
-    if "cut_input_seconds" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN cut_input_seconds REAL")
-    if "cut_output_seconds" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN cut_output_seconds REAL")
-    tinder_cols = {r[1] for r in conn.execute("PRAGMA table_info(tinder_reviews)").fetchall()}
-    if "job_id" not in tinder_cols:
-        conn.execute("ALTER TABLE tinder_reviews ADD COLUMN job_id INTEGER")
-    if "media_item_id" not in tinder_cols:
-        conn.execute("ALTER TABLE tinder_reviews ADD COLUMN media_item_id TEXT")
     conn.commit()
+
+
+def prepare_database(conn: sqlite3.Connection) -> None:
+    """Create schema and apply migrations (use this at process startup / per-connection warm-up)."""
+    init_db(conn)
+    apply_migrations(conn)
 
 
 def create_transcription_job(
