@@ -715,6 +715,7 @@ def download_transcription_text(job_id: int, conn: DbDep) -> FileResponse:
 
 _STATS_METHOD_LABELS_DE: dict[str, str] = {
     "openai_speech": "OpenAI (Whisper · gesprochene Segmente)",
+    "silero_vad": "Silero VAD · nur Sprache",
     "silence_all": "Stille entfernen · alle Profile",
     "silence_conservative": "Stille entfernen · Conservative",
     "silence_balanced": "Stille entfernen · Balanced",
@@ -804,6 +805,7 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
         "silence_conservative",
         "silence_balanced",
         "silence_aggressive",
+        "silero_vad",
     }
     noise_reduction_enabled = bool(body.noise_reduction is not False)
     noise_mode = str(body.noise_reduction_mode or "auto").strip().lower()
@@ -1164,7 +1166,13 @@ def _build_gallery_entries(
                 return "openai_speech"
             if label == "silence_remove":
                 label = ""
-            elif label in {"silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech"}:
+            elif label in {
+                "silence_conservative",
+                "silence_balanced",
+                "silence_aggressive",
+                "openai_speech",
+                "silero_vad",
+            }:
                 return label
         tm = str(opts.get("trim_method") or "").strip().lower()
         if not tm:
@@ -1174,7 +1182,13 @@ def _build_gallery_entries(
             if jt == "silence_remove":
                 return "silence_balanced"
             return label or "unknown"
-        if tm in {"silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech"}:
+        if tm in {
+            "silence_conservative",
+            "silence_balanced",
+            "silence_aggressive",
+            "openai_speech",
+            "silero_vad",
+        }:
             return tm
         if tm == "silence_all":
             profs = opts.get("profiles") or []

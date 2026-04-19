@@ -2,7 +2,6 @@ from setuptools import find_packages, setup
 
 setup(
     name="ai-clips-maker",
-    py_modules=["ai_clips_maker"],
     version="1.0.0",
     description=(
         "AI Clips Maker is an open-source Python library that automatically converts "
@@ -59,6 +58,24 @@ setup(
             "ipykernel",
             "pytest",
             "twine",
+        ],
+        "web": [
+            "fastapi>=0.109.0",
+            "uvicorn[standard]>=0.27.0",
+            "httpx>=0.26.0",
+            "google-auth-oauthlib>=1.2.0",
+            "google-auth>=2.27.0",
+            "apscheduler>=3.10.0",
+            "pydantic-settings>=2.0.0",
+            "python-multipart>=0.0.6",
+            "imageio-ffmpeg>=0.5.0",
+            "silero-vad>=6.0.0",
+            "torchaudio>=2.0.0",
+        ],
+    },
+    entry_points={
+        "console_scripts": [
+            "ai-clips-web=webapp.main:main",
         ],
     },
 )

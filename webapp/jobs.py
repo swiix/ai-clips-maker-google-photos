@@ -547,6 +547,76 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                         cut_output_seconds=before,
                     )
                     return
+                elif trim_method == "silero_vad":
+                    merge_gap = (
+                        cut_merge_gap_sec if cut_merge_gap_sec is not None else 0.35
+                    )
+                    min_seg = (
+                        cut_min_duration_sec if cut_min_duration_sec is not None else 0.04
+                    )
+                    dbmod.upsert_job(
+                        conn,
+                        media_item_id,
+                        job_type=job_type,
+                        status="running",
+                        phase="vad_silero",
+                        phase_message="Sprache wird erkannt (Silero VAD)",
+                        progress=0.56,
+                    )
+                    try:
+                        from webapp.vad_speech_trim import trim_video_silero_vad
+
+                        result = trim_video_silero_vad(
+                            str(processing_input),
+                            str(output_dir),
+                            run_prefix,
+                            merge_gap_sec=merge_gap,
+                            min_segment_sec=min_seg,
+                            music_exclude_intervals=music_intervals or None,
+                        )
+                    except Exception as exc:
+                        dbmod.upsert_job(
+                            conn,
+                            media_item_id,
+                            job_type=job_type,
+                            status="failed",
+                            phase="failed",
+                            phase_message="Silero VAD fehlgeschlagen",
+                            progress=1.0,
+                            error=str(exc),
+                            output_dir=str(output_dir),
+                        )
+                        return
+                    out_name = Path(str(result["video_path"])).name
+                    dbmod.upsert_job(
+                        conn,
+                        media_item_id,
+                        job_type=job_type,
+                        status="done",
+                        phase="done",
+                        phase_message=f"Fertig ({out_name})",
+                        progress=1.0,
+                        output_dir=str(output_dir),
+                        error=None,
+                    )
+                    try:
+                        in_secs = float(str(result.get("input_audio_seconds") or "0") or 0.0)
+                    except (TypeError, ValueError):
+                        in_secs = 0.0
+                    try:
+                        out_secs = float(str(result.get("output_video_seconds") or "0") or 0.0)
+                    except (TypeError, ValueError):
+                        out_secs = 0.0
+                    dbmod.set_job_run_metrics(
+                        conn,
+                        media_item_id,
+                        outputs_created=1,
+                        openai_input_seconds=None,
+                        openai_cost_usd=None,
+                        cut_input_seconds=in_secs if in_secs > 0 else None,
+                        cut_output_seconds=out_secs if out_secs >= 0 else None,
+                    )
+                    return
                 profiles = options.get("profiles")
                 if trim_method == "silence_all":
                     selected_profiles = ["conservative", "balanced", "aggressive"]

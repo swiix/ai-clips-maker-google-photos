@@ -41,6 +41,7 @@ const TRIM_METHOD_OPTIONS = [
   { value: "silence_conservative", label: "Stille entfernen · Conservative" },
   { value: "silence_balanced", label: "Stille entfernen · Balanced" },
   { value: "silence_aggressive", label: "Stille entfernen · Aggressive" },
+  { value: "silero_vad", label: "Silero VAD · nur Sprache (lokal)" },
   { value: "openai_speech", label: "OpenAI · nur gesprochene Segmente" },
   { value: "all_methods_testing", label: "Testing Mode · alle aktiven Modi" },
 ];

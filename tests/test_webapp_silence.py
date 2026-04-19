@@ -102,6 +102,37 @@ def test_api_enqueue_silence_remove_job(tmp_path: Path, monkeypatch):
     assert "silence_balanced" in str(row["job_options"] or "")
 
 
+def test_api_enqueue_silero_vad_trim(tmp_path: Path):
+    db_path = tmp_path / "app.db"
+    conn = dbmod.connect(db_path)
+    dbmod.prepare_database(conn)
+    conn.close()
+
+    s = Settings(data_dir=tmp_path, output_dir=tmp_path / "outputs", cache_dir=tmp_path / "cache")
+    app.dependency_overrides = {}
+    app.dependency_overrides[__import__("webapp.main", fromlist=["_settings_dep"])._settings_dep] = lambda: s
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/jobs/silence-remove",
+        json={
+            "items": [{"id": "m_vad", "baseUrl": "https://x", "filename": "a.mp4"}],
+            "trim_method": "silero_vad",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert len(payload["queued_job_ids"]) == 1
+
+    c2 = dbmod.connect(db_path)
+    dbmod.prepare_database(c2)
+    row = c2.execute("SELECT job_type, job_options FROM jobs WHERE media_item_id = 'm_vad'").fetchone()
+    c2.close()
+    assert row["job_type"] == "silence_remove"
+    opts = json.loads(str(row["job_options"] or "{}"))
+    assert opts.get("trim_method") == "silero_vad"
+
+
 def test_api_enqueue_clip_pipeline_persists_cut_controls(tmp_path: Path):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)
@@ -283,6 +314,61 @@ def test_worker_silence_remove_done(tmp_path: Path, monkeypatch):
     assert out["openai_cost_usd"] is None
     assert float(captured_silence.get("override_merge_gap_sec") or 0.0) == pytest.approx(0.5)
     assert float(captured_silence.get("override_min_keep_sec") or 0.0) == pytest.approx(0.3)
+
+
+def test_worker_silero_vad_done(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "app.db"
+    conn = dbmod.connect(db_path)
+    dbmod.prepare_database(conn)
+    dbmod.create_or_requeue_job(
+        conn,
+        "m_vad",
+        filename="b.mp4",
+        base_url="https://x",
+        job_type="silence_remove",
+        job_options='{"trim_method":"silero_vad","cut_merge_gap_sec":0.6,"cut_min_duration_sec":0.05}',
+        trim_method_label="silero_vad",
+    )
+    row = conn.execute("SELECT id FROM jobs WHERE media_item_id = 'm_vad'").fetchone()
+    job_id = int(row["id"])
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "m_vad.mp4").write_bytes(b"video")
+
+    settings = Settings(data_dir=tmp_path, output_dir=tmp_path / "out", cache_dir=cache_dir)
+
+    monkeypatch.setattr("webapp.jobs._is_valid_cached_av", lambda *_a, **_k: True)
+    captured: dict[str, object] = {}
+
+    def fake_vad(*_a, **kwargs):
+        captured.update(kwargs)
+        return {
+            "video_path": str(tmp_path / "out" / "x_vad.mp4"),
+            "input_audio_seconds": "90.000000",
+            "output_video_seconds": "42.500000",
+            "estimated_cost_usd": "0",
+        }
+
+    monkeypatch.setattr(
+        "webapp.vad_speech_trim.trim_video_silero_vad",
+        fake_vad,
+    )
+
+    jobsmod._run_one_job(conn, settings, job_id)
+    out = conn.execute(
+        "SELECT status, phase, job_type, outputs_created, cut_input_seconds, cut_output_seconds FROM jobs WHERE id = ?",
+        (job_id,),
+    ).fetchone()
+    conn.close()
+    assert out["status"] == "done"
+    assert out["phase"] == "done"
+    assert out["job_type"] == "silence_remove"
+    assert int(out["outputs_created"] or 0) == 1
+    assert abs(float(out["cut_input_seconds"] or 0) - 90.0) < 1e-6
+    assert abs(float(out["cut_output_seconds"] or 0) - 42.5) < 1e-6
+    assert float(captured.get("merge_gap_sec") or 0.0) == pytest.approx(0.6)
+    assert float(captured.get("min_segment_sec") or 0.0) == pytest.approx(0.05)
 
 
 def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
