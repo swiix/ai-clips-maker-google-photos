@@ -436,6 +436,64 @@ def test_worker_silero_vad_done(tmp_path: Path, monkeypatch):
     assert float(captured.get("vad_threshold") or 0.0) == pytest.approx(0.95)
 
 
+def test_worker_silero_vad_no_speech_exports_nocut(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "app.db"
+    conn = dbmod.connect(db_path)
+    dbmod.prepare_database(conn)
+    dbmod.create_or_requeue_job(
+        conn,
+        "m_vad_nospeech",
+        filename="b.mp4",
+        base_url="https://x",
+        job_type="silence_remove",
+        job_options='{"trim_method":"silero_vad","cut_merge_gap_sec":0.6,"cut_min_duration_sec":0.05,"silero_vad_threshold":0.5}',
+        trim_method_label="silero_vad",
+    )
+    row = conn.execute("SELECT id FROM jobs WHERE media_item_id = 'm_vad_nospeech'").fetchone()
+    job_id = int(row["id"])
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "m_vad_nospeech.mp4").write_bytes(b"video")
+
+    settings = Settings(data_dir=tmp_path, output_dir=tmp_path / "out", cache_dir=cache_dir)
+
+    monkeypatch.setattr("webapp.jobs._is_valid_cached_av", lambda *_a, **_k: True)
+    monkeypatch.setattr("webapp.silence_remover.probe_duration_seconds", lambda *_a, **_k: 12.0)
+
+    def fake_trim(*_a, **_k):
+        raise RuntimeError("Silero VAD found no speech segments. Test.")
+
+    monkeypatch.setattr("webapp.vad_speech_trim.trim_video_silero_vad", fake_trim)
+
+    class Proc:
+        def __init__(self):
+            self.returncode = 0
+            self.stderr = ""
+            self.stdout = ""
+
+    def fake_subprocess_run(cmd, *args, **kwargs):
+        out = Path(str(cmd[-1]))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"mp4")
+        return Proc()
+
+    monkeypatch.setattr("webapp.jobs.subprocess.run", fake_subprocess_run)
+
+    jobsmod._run_one_job(conn, settings, job_id)
+    out = conn.execute(
+        "SELECT status, phase, outputs_created, cut_input_seconds, cut_output_seconds, error FROM jobs WHERE id = ?",
+        (job_id,),
+    ).fetchone()
+    conn.close()
+    assert out["status"] == "done"
+    assert out["phase"] == "done"
+    assert int(out["outputs_created"] or 0) == 1
+    assert abs(float(out["cut_input_seconds"] or 0) - 12.0) < 1e-6
+    assert abs(float(out["cut_output_seconds"] or 0) - 12.0) < 1e-6
+    assert out["error"] in (None, "")
+
+
 def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)

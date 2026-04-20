@@ -586,6 +586,86 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                             music_exclude_intervals=music_intervals or None,
                         )
                     except Exception as exc:
+                        err_msg = str(exc)
+                        if "Silero VAD found no speech segments" in err_msg:
+                            # Do not fail hard when no speech is detected; export no-cut fallback.
+                            before_fb = probe_duration_seconds(str(processing_input))
+                            dur_tag = duration_before_after_tag(before_fb, before_fb)
+                            fb_output = Path(output_dir) / f"{run_prefix}_{dur_tag}_silero_nospeech_nocut.mp4"
+                            copy_cmd = [
+                                "ffmpeg",
+                                "-y",
+                                "-i",
+                                str(processing_input),
+                                "-c",
+                                "copy",
+                                str(fb_output),
+                            ]
+                            copy_proc = subprocess.run(
+                                copy_cmd, text=True, capture_output=True, check=False
+                            )
+                            if copy_proc.returncode != 0 or not fb_output.is_file():
+                                transcode_cmd = [
+                                    "ffmpeg",
+                                    "-y",
+                                    "-i",
+                                    str(processing_input),
+                                    "-c:v",
+                                    "libx264",
+                                    "-preset",
+                                    "veryfast",
+                                    "-crf",
+                                    "18",
+                                    "-c:a",
+                                    "aac",
+                                    "-b:a",
+                                    "192k",
+                                    str(fb_output),
+                                ]
+                                transcode_proc = subprocess.run(
+                                    transcode_cmd, text=True, capture_output=True, check=False
+                                )
+                                if transcode_proc.returncode != 0 or not fb_output.is_file():
+                                    dbmod.upsert_job(
+                                        conn,
+                                        media_item_id,
+                                        job_type=job_type,
+                                        status="failed",
+                                        phase="failed",
+                                        phase_message="Silero VAD fehlgeschlagen",
+                                        progress=1.0,
+                                        error=(
+                                            "Silero no-speech fallback export failed: "
+                                            + (
+                                                transcode_proc.stderr
+                                                or copy_proc.stderr
+                                                or "unknown ffmpeg error"
+                                            )
+                                        ),
+                                        output_dir=str(output_dir),
+                                    )
+                                    return
+                            dbmod.upsert_job(
+                                conn,
+                                media_item_id,
+                                job_type=job_type,
+                                status="done",
+                                phase="done",
+                                phase_message="Fertig (kein Sprachsegment erkannt, Original exportiert)",
+                                progress=1.0,
+                                output_dir=str(output_dir),
+                                error=None,
+                            )
+                            dbmod.set_job_run_metrics(
+                                conn,
+                                media_item_id,
+                                outputs_created=1,
+                                openai_input_seconds=None,
+                                openai_cost_usd=None,
+                                cut_input_seconds=before_fb,
+                                cut_output_seconds=before_fb,
+                            )
+                            return
                         dbmod.upsert_job(
                             conn,
                             media_item_id,
@@ -594,7 +674,7 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                             phase="failed",
                             phase_message="Silero VAD fehlgeschlagen",
                             progress=1.0,
-                            error=str(exc),
+                            error=err_msg,
                             output_dir=str(output_dir),
                         )
                         return
