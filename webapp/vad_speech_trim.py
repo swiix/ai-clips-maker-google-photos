@@ -25,12 +25,12 @@ from webapp.silence_remover import (
 logger = logging.getLogger(__name__)
 
 _VAD_SAMPLE_RATE = 16000
-_vad_model = None
+_VAD_MODEL_CACHE = None
 
 
-def _vad_model():
-    global _vad_model
-    if _vad_model is None:
+def _load_vad_model():
+    global _VAD_MODEL_CACHE
+    if _VAD_MODEL_CACHE is None:
         try:
             from silero_vad import load_silero_vad
         except ImportError as exc:
@@ -38,8 +38,8 @@ def _vad_model():
                 "silero-vad is not installed. Install with: pip install silero-vad torchaudio "
                 "(see project extras [web])."
             ) from exc
-        _vad_model = load_silero_vad()
-    return _vad_model
+        _VAD_MODEL_CACHE = load_silero_vad()
+    return _VAD_MODEL_CACHE
 
 
 def _extract_mono_wav_16k(video_path: str, wav_out: str) -> None:
@@ -92,7 +92,7 @@ def speech_keep_segments_from_video(
             ) from exc
 
         wav = read_audio(wav_path, sampling_rate=_VAD_SAMPLE_RATE)
-        model = _vad_model()
+        model = _load_vad_model()
         timestamps = get_speech_timestamps(
             wav,
             model,
