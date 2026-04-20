@@ -128,8 +128,10 @@ def download_media_base_url(
     start_ts = time.monotonic()
     max_wait_seconds = 300.0
     wait_seconds = 5.0
+    attempt_no = 0
 
     while True:
+        attempt_no += 1
         processing_like_failure = False
         permanent_access_failure = False
 
@@ -174,21 +176,46 @@ def download_media_base_url(
                 elif status in {401, 403}:
                     # Access/permission failures usually will not recover by waiting.
                     permanent_access_failure = True
-                logging.warning("Download attempt failed for %s: %s", url, exc)
+                logging.warning(
+                    "Download candidate failed (attempt %s, url=%s, status=%s): %s",
+                    attempt_no,
+                    url,
+                    status,
+                    exc,
+                )
             except Exception as exc:
                 last_error = exc
-                logging.warning("Download attempt failed for %s: %s", url, exc)
+                logging.warning(
+                    "Download candidate failed (attempt %s, url=%s): %s",
+                    attempt_no,
+                    url,
+                    exc,
+                )
 
         if permanent_access_failure:
+            elapsed = time.monotonic() - start_ts
+            logging.error(
+                "Stopping download retries after permanent access failure (attempt=%s, elapsed=%.1fs, base_url=%s).",
+                attempt_no,
+                elapsed,
+                base_url,
+            )
             break
 
         elapsed = time.monotonic() - start_ts
         if elapsed >= max_wait_seconds:
+            logging.error(
+                "Stopping download retries after timeout (attempt=%s, elapsed=%.1fs, base_url=%s).",
+                attempt_no,
+                elapsed,
+                base_url,
+            )
             break
 
         if processing_like_failure:
             logging.info(
-                "Asset appears to be processing. Retrying in %ss (elapsed %.1fs/%ss)...",
+                "Asset appears to be processing (attempt=%s). Retrying in %ss (elapsed %.1fs/%ss)...",
+                attempt_no,
                 int(wait_seconds),
                 elapsed,
                 int(max_wait_seconds),
@@ -198,6 +225,13 @@ def download_media_base_url(
             continue
 
         # For non-processing failures, do a short retry window too.
+        logging.info(
+            "Transient download failure, retrying (attempt=%s) in %ss (elapsed %.1fs/%ss).",
+            attempt_no,
+            int(min(wait_seconds, 10.0)),
+            elapsed,
+            int(max_wait_seconds),
+        )
         time.sleep(min(wait_seconds, 10.0))
         wait_seconds = min(wait_seconds * 1.5, 20.0)
 

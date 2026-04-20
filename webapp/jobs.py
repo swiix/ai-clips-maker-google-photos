@@ -562,6 +562,13 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                             if 0.0 <= v <= 1.0:
                                 # 1.0 is effectively "never speech". Keep threshold in a practical range.
                                 vad_thr = min(v, 0.95)
+                                if v != vad_thr:
+                                    logger.info(
+                                        "Silero threshold clamped for %s: requested=%.3f effective=%.3f",
+                                        media_item_id,
+                                        v,
+                                        vad_thr,
+                                    )
                     except (TypeError, ValueError):
                         vad_thr = None
                     dbmod.upsert_job(
@@ -664,6 +671,12 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                                 openai_cost_usd=None,
                                 cut_input_seconds=before_fb,
                                 cut_output_seconds=before_fb,
+                            )
+                            logger.info(
+                                "Silero no-speech fallback exported original for %s -> %s (%.2fs).",
+                                media_item_id,
+                                fb_output.name,
+                                before_fb,
                             )
                             return
                         dbmod.upsert_job(
