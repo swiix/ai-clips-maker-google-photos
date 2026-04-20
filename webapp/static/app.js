@@ -2312,16 +2312,25 @@ function filterUnreviewedClips(clips) {
   return (clips || []).filter((clip) => !isReviewedDecision(resolveTinderDecision(clip)?.decision));
 }
 
+function parseOptionalMinFilter(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const normalized = raw.replace(",", ".");
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, parsed);
+}
+
 function applyTinderQueueFromAllClips() {
   const currentKey = getCurrentTinderClip()?.key || null;
   const sortKey = ($("#tinder-sort")?.value || "updated_desc").toLowerCase();
-  const minSavedSec = Number($("#tinder-min-saved-sec")?.value || "");
-  const minSavedPct = Number($("#tinder-min-saved-pct")?.value || "");
+  const minSavedSec = parseOptionalMinFilter($("#tinder-min-saved-sec")?.value);
+  const minSavedPct = parseOptionalMinFilter($("#tinder-min-saved-pct")?.value);
   let rows = Array.from(state.tinderAllClips || []);
   rows = rows.filter((clip) => {
     const m = computeClipCutMetrics(clip);
-    if (!Number.isNaN(minSavedSec) && $("#tinder-min-saved-sec")?.value !== "" && m.savedSec < minSavedSec) return false;
-    if (!Number.isNaN(minSavedPct) && $("#tinder-min-saved-pct")?.value !== "" && m.savedPct < minSavedPct) return false;
+    if (minSavedSec !== null && m.savedSec < minSavedSec) return false;
+    if (minSavedPct !== null && m.savedPct < minSavedPct) return false;
     return true;
   });
   const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? Number.NEGATIVE_INFINITY : Number(v));
