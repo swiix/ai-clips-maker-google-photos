@@ -560,7 +560,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                         if raw_thr is not None:
                             v = float(raw_thr)
                             if 0.0 <= v <= 1.0:
-                                vad_thr = v
+                                # 1.0 is effectively "never speech". Keep threshold in a practical range.
+                                vad_thr = min(v, 0.95)
                     except (TypeError, ValueError):
                         vad_thr = None
                     dbmod.upsert_job(

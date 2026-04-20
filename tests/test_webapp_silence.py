@@ -390,7 +390,7 @@ def test_worker_silero_vad_done(tmp_path: Path, monkeypatch):
         filename="b.mp4",
         base_url="https://x",
         job_type="silence_remove",
-        job_options='{"trim_method":"silero_vad","cut_merge_gap_sec":0.6,"cut_min_duration_sec":0.05,"silero_vad_threshold":0.37}',
+        job_options='{"trim_method":"silero_vad","cut_merge_gap_sec":0.6,"cut_min_duration_sec":0.05,"silero_vad_threshold":1.0}',
         trim_method_label="silero_vad",
     )
     row = conn.execute("SELECT id FROM jobs WHERE media_item_id = 'm_vad'").fetchone()
@@ -433,7 +433,7 @@ def test_worker_silero_vad_done(tmp_path: Path, monkeypatch):
     assert abs(float(out["cut_output_seconds"] or 0) - 42.5) < 1e-6
     assert float(captured.get("merge_gap_sec") or 0.0) == pytest.approx(0.6)
     assert float(captured.get("min_segment_sec") or 0.0) == pytest.approx(0.05)
-    assert float(captured.get("vad_threshold") or 0.0) == pytest.approx(0.37)
+    assert float(captured.get("vad_threshold") or 0.0) == pytest.approx(0.95)
 
 
 def test_worker_openai_trim_done(tmp_path: Path, monkeypatch):

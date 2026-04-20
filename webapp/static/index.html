@@ -71,15 +71,15 @@
             <button type="button" id="silero-wind-preset-btn" class="btn" title="Setzt Noise Reduction an und Noise-Modus auf Strong (wie in Settings · Silero empfohlen).">Preset: NR an · Strong</button>
           </div>
           <label class="silero-threshold-field" title="Silero gibt pro kurzem Fenster eine Sprach-Wahrscheinlichkeit 0–1. Alles über der Schwelle zählt als Sprache und bleibt im Schnitt.">
-            VAD-Schwelle (0–1)
+            VAD-Schwelle (0–0.95)
             <input
               type="number"
               id="silero-vad-threshold"
               min="0"
-              max="1"
+              max="0.95"
               step="0.05"
               value="0.5"
-              title="Richtwerte: 0.35–0.45 wenn deine Stimme im Wind zu kurz kommt (kann mehr Rauschen einschließen). 0.55–0.65 wenn Wind fälschlich als Sprache erkannt wird. Standard 0.5. Änderung wird lokal gespeichert."
+              title="Richtwerte: 0.35–0.45 wenn deine Stimme im Wind zu kurz kommt (kann mehr Rauschen einschließen). 0.55–0.65 wenn Wind fälschlich als Sprache erkannt wird. Standard 0.5. Max 0.95, da 1.0 praktisch keine Sprache durchlässt."
             />
           </label>
         </div>
@@ -332,6 +332,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=silero-vad-settings-hint3" defer></script>
+  <script src="/static/app.js?v=silero-vad-threshold-cap4" defer></script>
 </body>
 </html>

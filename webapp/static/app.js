@@ -318,12 +318,12 @@ function parsePositiveTuningValue(value, fallback) {
   return fallback;
 }
 
-/** Clamp Silero speech-probability threshold to [0, 1]. */
+/** Clamp Silero speech-probability threshold to [0, 0.95]. */
 function parseSileroVadThreshold(value, fallback = 0.5) {
   const normalized = String(value ?? "").trim().replace(",", ".");
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(1, Math.max(0, parsed));
+  return Math.min(0.95, Math.max(0, parsed));
 }
 
 function persistSileroVadThresholdToStorage(value) {
