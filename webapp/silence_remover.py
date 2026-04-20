@@ -43,6 +43,11 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, text=True, capture_output=True, check=True)
 
 
+def _looks_like_missing_audio_stream(exc: subprocess.CalledProcessError) -> bool:
+    payload = f"{exc.stderr or ''}\n{exc.stdout or ''}".lower()
+    return ("matches no streams" in payload and ":a" in payload) or "stream specifier" in payload
+
+
 def format_duration_for_filename(seconds: float) -> str:
     """
     Duration token in whole seconds for filenames, e.g. 120s.
@@ -160,40 +165,51 @@ def merge_keep_segments_by_gap(
 def _render_segments(input_video: str, output_video: str, keep_segments: list[tuple[float, float]]) -> None:
     if not keep_segments:
         raise RuntimeError("No non-silent segments found to render.")
-    filters: list[str] = []
-    vouts: list[str] = []
-    aouts: list[str] = []
-    for idx, (start, end) in enumerate(keep_segments):
-        filters.append(f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[v{idx}]")
-        filters.append(f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{idx}]")
-        vouts.append(f"[v{idx}]")
-        aouts.append(f"[a{idx}]")
-    concat = "".join(x + y for x, y in zip(vouts, aouts))
-    filters.append(f"{concat}concat=n={len(keep_segments)}:v=1:a=1[outv][outa]")
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        input_video,
-        "-filter_complex",
-        ";".join(filters),
-        "-map",
-        "[outv]",
-        "-map",
-        "[outa]",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "20",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        output_video,
-    ]
-    _run(cmd)
+    def _build_cmd(include_audio: bool) -> list[str]:
+        filters: list[str] = []
+        vouts: list[str] = []
+        aouts: list[str] = []
+        for idx, (start, end) in enumerate(keep_segments):
+            filters.append(f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[v{idx}]")
+            vouts.append(f"[v{idx}]")
+            if include_audio:
+                filters.append(f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{idx}]")
+                aouts.append(f"[a{idx}]")
+        if include_audio:
+            concat = "".join(x + y for x, y in zip(vouts, aouts))
+            filters.append(f"{concat}concat=n={len(keep_segments)}:v=1:a=1[outv][outa]")
+        else:
+            filters.append(f"{''.join(vouts)}concat=n={len(keep_segments)}:v=1:a=0[outv]")
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            input_video,
+            "-filter_complex",
+            ";".join(filters),
+            "-map",
+            "[outv]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+        ]
+        if include_audio:
+            cmd += ["-map", "[outa]", "-c:a", "aac", "-b:a", "192k"]
+        else:
+            cmd += ["-an"]
+        cmd.append(output_video)
+        return cmd
+
+    try:
+        _run(_build_cmd(include_audio=True))
+    except subprocess.CalledProcessError as exc:
+        # Some source videos do not carry an audio stream. In that case retry video-only.
+        if not _looks_like_missing_audio_stream(exc):
+            raise
+        _run(_build_cmd(include_audio=False))
 
 
 def render_keep_segments_video(

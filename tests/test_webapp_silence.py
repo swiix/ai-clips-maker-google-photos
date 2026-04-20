@@ -18,6 +18,7 @@ from webapp.silence_remover import (
     duration_before_after_tag,
     format_duration_for_filename,
     output_duration_from_keep_segments,
+    render_keep_segments_video,
 )
 
 
@@ -57,6 +58,40 @@ def test_duration_filename_tags():
 def test_profiles_are_all_defined():
     names = [p.name for p in PROFILES]
     assert names == ["conservative", "balanced", "aggressive"]
+
+
+def test_render_keep_segments_retries_without_audio_stream(monkeypatch):
+    calls: list[list[str]] = []
+
+    class OkProc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, *args, **kwargs):
+        calls.append(list(cmd))
+        cmd_str = " ".join(cmd)
+        if "[0:a]atrim" in cmd_str:
+            raise subprocess.CalledProcessError(
+                returncode=69,
+                cmd=cmd,
+                stderr="Stream specifier ':a' in filtergraph description matches no streams.",
+                output="",
+            )
+        return OkProc()
+
+    import subprocess
+
+    monkeypatch.setattr("webapp.silence_remover.subprocess.run", fake_run)
+    render_keep_segments_video("input.mov", "out.mp4", [(0.0, 2.0), (3.0, 5.0)])
+
+    assert len(calls) == 2
+    first = " ".join(calls[0])
+    second = " ".join(calls[1])
+    assert "[0:a]atrim" in first
+    assert "[0:a]atrim" not in second
+    assert "concat=n=2:v=1:a=0" in second
+    assert " -an " in f" {second} "
 
 
 def test_settings_loads_openai_key_from_json(tmp_path: Path):
