@@ -26,6 +26,7 @@ _lock = threading.Lock()
 _OPENAI_TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions"
 _CHUNK_SECONDS = 20 * 60
 _SILENCE_RE = re.compile(r"silence_(start|end):\s*([0-9]+(?:\.[0-9]+)?)")
+_DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 
 
 def start_worker(conn_factory, settings: "Settings") -> None:
@@ -69,21 +70,36 @@ def enqueue(job_id: int) -> None:
 
 
 def _probe_duration_seconds(path: Path) -> float:
-    cmd = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        str(path),
-    ]
-    proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
-    if proc.returncode != 0:
-        return 0.0
+    # Prefer ffprobe, but fall back to parsing ffmpeg stderr when ffprobe is unavailable.
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)]
     try:
-        return max(0.0, float((proc.stdout or "").strip()))
+        proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    except FileNotFoundError:
+        proc = None
+    if proc is not None and proc.returncode == 0:
+        try:
+            return max(0.0, float((proc.stdout or "").strip()))
+        except (TypeError, ValueError):
+            pass
+
+    ffmpeg_probe = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-i", str(path)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    payload = f"{ffmpeg_probe.stderr or ''}\n{ffmpeg_probe.stdout or ''}"
+    m = _DURATION_RE.search(payload)
+    if m:
+        try:
+            h = int(m.group(1))
+            mi = int(m.group(2))
+            sec = float(m.group(3))
+            return max(0.0, h * 3600 + mi * 60 + sec)
+        except (TypeError, ValueError):
+            return 0.0
+    try:
+        return max(0.0, float((ffmpeg_probe.stdout or "").strip()))
     except (TypeError, ValueError):
         return 0.0
 
