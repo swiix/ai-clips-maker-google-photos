@@ -87,6 +87,13 @@ function setTab(name, options = {}) {
   document.querySelectorAll(".panel").forEach((p) => {
     p.classList.toggle("active", p.id === `panel-${safeName}`);
   });
+  if (safeName !== "tinderwatch") {
+    document.querySelectorAll("video.tinder-video").forEach((video) => {
+      try {
+        video.pause();
+      } catch (_) {}
+    });
+  }
   if (syncUrl) syncUrlToTab(safeName, replaceHistory);
 }
 
@@ -2649,8 +2656,9 @@ function renderTinderCard() {
     const savedPct = Math.max(0, Math.min(100, (savedSec / before) * 100));
     return `${escapeHtml(formatSeconds(savedSec))}s (${escapeHtml(savedPct.toFixed(1).replace(".", ","))}%)`;
   })();
+  const shouldAutoplay = isTabActive("tinderwatch");
   root.innerHTML = `<div class="tinder-chip">Clip #${escapeHtml(String(clip.index || 0))}</div>
-    <video class="tinder-video" src="${escapeHtml(clip.video_url)}" controls playsinline autoplay loop></video>
+    <video class="tinder-video" src="${escapeHtml(clip.video_url)}" controls playsinline ${shouldAutoplay ? "autoplay" : ""} loop></video>
     <div class="tinder-meta">
       <div class="tinder-title">${escapeHtml(clip.sourceFilename || clip.folder || "Clip")}</div>
       <div id="tinder-player-state" class="tinder-player-state">Player: laedt...</div>
