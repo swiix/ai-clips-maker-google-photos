@@ -385,6 +385,29 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 min_segment_sec=min_segment_sec,
                 music_exclude_intervals=music_intervals or None,
             )
+            cap_secs, cap_cost = None, None
+            try:
+                cap_secs, cap_cost = _burn_captions_on_exports(
+                    conn,
+                    media_item_id,
+                    job_type,
+                    [result["video_path"]],
+                    settings=settings,
+                    job_options=row["job_options"],
+                )
+            except Exception as exc:
+                dbmod.upsert_job(
+                    conn,
+                    media_item_id,
+                    job_type=job_type,
+                    status="failed",
+                    phase="failed",
+                    phase_message="Untertitel einbrennen fehlgeschlagen",
+                    progress=1.0,
+                    error=str(exc),
+                    output_dir=str(output_dir),
+                )
+                return
             out_name = Path(result["video_path"]).name
             dbmod.upsert_job(
                 conn,
@@ -409,6 +432,10 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 o_cost = float(str(result.get("estimated_cost_usd") or "0") or 0.0)
             except (TypeError, ValueError):
                 o_cost = 0.0
+            if cap_secs:
+                o_secs = (o_secs or 0.0) + float(cap_secs)
+            if cap_cost:
+                o_cost = (o_cost or 0.0) + float(cap_cost)
             dbmod.set_job_run_metrics(
                 conn,
                 media_item_id,
@@ -466,6 +493,28 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                         render_keep_segments_video(
                             str(processing_input), str(output_path), keep_nm
                         )
+                        try:
+                            _burn_captions_on_exports(
+                                conn,
+                                media_item_id,
+                                job_type,
+                                [output_path],
+                                settings=settings,
+                                job_options=row["job_options"],
+                            )
+                        except Exception as exc:
+                            dbmod.upsert_job(
+                                conn,
+                                media_item_id,
+                                job_type=job_type,
+                                status="failed",
+                                phase="failed",
+                                phase_message="Untertitel einbrennen fehlgeschlagen",
+                                progress=1.0,
+                                error=str(exc),
+                                output_dir=str(output_dir),
+                            )
+                            return
                         dbmod.upsert_job(
                             conn,
                             media_item_id,
@@ -526,6 +575,28 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                                 "No-cut export failed: "
                                 + (transcode_proc.stderr or copy_proc.stderr or "unknown ffmpeg error")
                             )
+                    try:
+                        _burn_captions_on_exports(
+                            conn,
+                            media_item_id,
+                            job_type,
+                            [output_path],
+                            settings=settings,
+                            job_options=row["job_options"],
+                        )
+                    except Exception as exc:
+                        dbmod.upsert_job(
+                            conn,
+                            media_item_id,
+                            job_type=job_type,
+                            status="failed",
+                            phase="failed",
+                            phase_message="Untertitel einbrennen fehlgeschlagen",
+                            progress=1.0,
+                            error=str(exc),
+                            output_dir=str(output_dir),
+                        )
+                        return
                     dbmod.upsert_job(
                         conn,
                         media_item_id,
@@ -652,6 +723,28 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                                         output_dir=str(output_dir),
                                     )
                                     return
+                            try:
+                                cap_secs_fb, cap_cost_fb = _burn_captions_on_exports(
+                                    conn,
+                                    media_item_id,
+                                    job_type,
+                                    [fb_output],
+                                    settings=settings,
+                                    job_options=row["job_options"],
+                                )
+                            except Exception as exc:
+                                dbmod.upsert_job(
+                                    conn,
+                                    media_item_id,
+                                    job_type=job_type,
+                                    status="failed",
+                                    phase="failed",
+                                    phase_message="Untertitel einbrennen fehlgeschlagen",
+                                    progress=1.0,
+                                    error=str(exc),
+                                    output_dir=str(output_dir),
+                                )
+                                return
                             dbmod.upsert_job(
                                 conn,
                                 media_item_id,
@@ -667,8 +760,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                                 conn,
                                 media_item_id,
                                 outputs_created=1,
-                                openai_input_seconds=None,
-                                openai_cost_usd=None,
+                                openai_input_seconds=cap_secs_fb,
+                                openai_cost_usd=cap_cost_fb,
                                 cut_input_seconds=before_fb,
                                 cut_output_seconds=before_fb,
                             )
@@ -688,6 +781,28 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                             phase_message="Silero VAD fehlgeschlagen",
                             progress=1.0,
                             error=err_msg,
+                            output_dir=str(output_dir),
+                        )
+                        return
+                    try:
+                        cap_secs_sv, cap_cost_sv = _burn_captions_on_exports(
+                            conn,
+                            media_item_id,
+                            job_type,
+                            [result["video_path"]],
+                            settings=settings,
+                            job_options=row["job_options"],
+                        )
+                    except Exception as exc:
+                        dbmod.upsert_job(
+                            conn,
+                            media_item_id,
+                            job_type=job_type,
+                            status="failed",
+                            phase="failed",
+                            phase_message="Untertitel einbrennen fehlgeschlagen",
+                            progress=1.0,
+                            error=str(exc),
                             output_dir=str(output_dir),
                         )
                         return
@@ -715,8 +830,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                         conn,
                         media_item_id,
                         outputs_created=1,
-                        openai_input_seconds=None,
-                        openai_cost_usd=None,
+                        openai_input_seconds=cap_secs_sv,
+                        openai_cost_usd=cap_cost_sv,
                         cut_input_seconds=in_secs if in_secs > 0 else None,
                         cut_output_seconds=out_secs if out_secs >= 0 else None,
                     )
@@ -749,6 +864,40 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 override_min_keep_sec=cut_min_duration_sec,
                 additional_remove_intervals=music_intervals or None,
             )
+            cap_secs_sl, cap_cost_sl = None, None
+            if _is_burn_captions_enabled(row["job_options"]):
+                export_paths = [
+                    Path(raw)
+                    for item in rendered
+                    for raw in [
+                        item.get("output_path")
+                        if isinstance(item, dict)
+                        else getattr(item, "output_path", None)
+                    ]
+                    if raw
+                ]
+                try:
+                    cap_secs_sl, cap_cost_sl = _burn_captions_on_exports(
+                        conn,
+                        media_item_id,
+                        job_type,
+                        export_paths,
+                        settings=settings,
+                        job_options=row["job_options"],
+                    )
+                except Exception as exc:
+                    dbmod.upsert_job(
+                        conn,
+                        media_item_id,
+                        job_type=job_type,
+                        status="failed",
+                        phase="failed",
+                        phase_message="Untertitel einbrennen fehlgeschlagen",
+                        progress=1.0,
+                        error=str(exc),
+                        output_dir=str(output_dir),
+                    )
+                    return
             best_before: float | None = None
             best_after: float | None = None
             for item in rendered:
@@ -774,8 +923,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 conn,
                 media_item_id,
                 outputs_created=len(rendered),
-                openai_input_seconds=None,
-                openai_cost_usd=None,
+                openai_input_seconds=cap_secs_sl,
+                openai_cost_usd=cap_cost_sl,
                 cut_input_seconds=best_before,
                 cut_output_seconds=best_after,
             )
@@ -887,6 +1036,40 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 )
             else:
                 n_clips = len(result.clips) if getattr(result, "clips", None) else 0
+                clip_paths = [
+                    output_dir / c.video_relpath
+                    for c in (result.clips or [])
+                    if getattr(c, "video_relpath", None)
+                ]
+                clip_intervals = [
+                    (float(c.begin_sec), float(c.finish_sec))
+                    for c in (result.clips or [])
+                ]
+                cap_secs_cp, cap_cost_cp = None, None
+                try:
+                    cap_secs_cp, cap_cost_cp = _burn_captions_on_exports(
+                        conn,
+                        media_item_id,
+                        job_type,
+                        clip_paths,
+                        settings=settings,
+                        job_options=row["job_options"],
+                        transcription_json_path=getattr(result, "transcription_json", None),
+                        clip_intervals=clip_intervals or None,
+                    )
+                except Exception as exc:
+                    dbmod.upsert_job(
+                        conn,
+                        media_item_id,
+                        job_type=job_type,
+                        status="failed",
+                        phase="failed",
+                        phase_message="Untertitel einbrennen fehlgeschlagen",
+                        progress=1.0,
+                        error=str(exc),
+                        output_dir=str(output_dir),
+                    )
+                    return
                 dbmod.upsert_job(
                     conn,
                     media_item_id,
@@ -902,8 +1085,8 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                     conn,
                     media_item_id,
                     outputs_created=n_clips,
-                    openai_input_seconds=None,
-                    openai_cost_usd=None,
+                    openai_input_seconds=cap_secs_cp,
+                    openai_cost_usd=cap_cost_cp,
                     cut_input_seconds=None,
                     cut_output_seconds=None,
                 )
@@ -980,6 +1163,104 @@ def _parse_duration_from_name(path: str | Path) -> tuple[float, float] | None:
     if before <= 0 or after < 0:
         return None
     return before, after
+
+
+def _is_burn_captions_enabled(options_raw: str | None) -> bool:
+    try:
+        options = json.loads(options_raw or "{}")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return False
+    value = options.get("burn_captions", False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _burn_captions_on_exports(
+    conn: sqlite3.Connection,
+    media_item_id: str,
+    job_type: str,
+    video_paths: list[Path | str],
+    *,
+    settings: "Settings",
+    job_options: str | None,
+    transcription_json_path: str | Path | None = None,
+    clip_intervals: list[tuple[float, float]] | None = None,
+) -> tuple[float | None, float | None]:
+    """
+    Burn karaoke captions on exported MP4s when job option is enabled.
+    Returns extra (openai_input_seconds, openai_cost_usd) from caption transcription.
+    """
+    if not _is_burn_captions_enabled(job_options):
+        return None, None
+    paths = [Path(p) for p in video_paths if p and Path(p).is_file()]
+    if not paths:
+        return None, None
+
+    api_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError(
+            "Missing OPENAI_API_KEY — required for burned captions (set in .env or environment)."
+        )
+
+    from webapp.caption_burner import (
+        burn_captions_into_video,
+        transcribe_words_openai,
+        words_from_transcription_interval,
+    )
+
+    model = settings.openai_transcription_model or "whisper-1"
+    usd_per_min = float(settings.openai_whisper_usd_per_minute)
+    total_billed = 0.0
+
+    dbmod.upsert_job(
+        conn,
+        media_item_id,
+        job_type=job_type,
+        status="running",
+        phase="burn_captions",
+        phase_message=f"Untertitel werden eingebrannt (0/{len(paths)})",
+        progress=0.92,
+    )
+
+    tr_path = Path(transcription_json_path) if transcription_json_path else None
+    use_local_words = (
+        tr_path is not None
+        and tr_path.is_file()
+        and clip_intervals is not None
+        and len(clip_intervals) == len(paths)
+    )
+
+    for idx, vpath in enumerate(paths, start=1):
+        dbmod.upsert_job(
+            conn,
+            media_item_id,
+            job_type=job_type,
+            status="running",
+            phase="burn_captions",
+            phase_message=f"Untertitel werden eingebrannt ({idx}/{len(paths)})",
+            progress=0.92 + (0.06 * idx / max(1, len(paths))),
+        )
+        if use_local_words:
+            t0, t1 = clip_intervals[idx - 1]
+            words = words_from_transcription_interval(tr_path, t0, t1)
+            if not words:
+                words = transcribe_words_openai(vpath, api_key, model=model)
+                from webapp.silence_remover import probe_duration_seconds
+
+                total_billed += probe_duration_seconds(str(vpath))
+        else:
+            words = transcribe_words_openai(vpath, api_key, model=model)
+            from webapp.silence_remover import probe_duration_seconds
+
+            total_billed += probe_duration_seconds(str(vpath))
+        burn_captions_into_video(vpath, words, work_dir=vpath.parent)
+
+    extra_cost = (total_billed / 60.0) * usd_per_min if total_billed > 0 else None
+    extra_secs = total_billed if total_billed > 0 else None
+    return extra_secs, extra_cost
 
 
 def _is_remove_music_enabled(options_raw: str | None) -> bool:

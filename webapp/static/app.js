@@ -26,6 +26,7 @@ const STORAGE_KEYS = {
   cutMinDurationSec: "ai_clips_cut_min_duration_sec",
   noiseReductionMode: "ai_clips_noise_reduction_mode",
   removeMusic: "ai_clips_remove_music",
+  burnCaptions: "ai_clips_burn_captions",
   trimMethod: "ai_clips_trim_method",
   visibleTrimModes: "ai_clips_visible_trim_modes",
   visibleNoiseTestingVariants: "ai_clips_visible_noise_testing_variants",
@@ -290,6 +291,12 @@ function restoreCutTuningFromStorage() {
     if (savedRm === "1" || savedRm === "true") removeMusicCb.checked = true;
     if (savedRm === "0" || savedRm === "false") removeMusicCb.checked = false;
   }
+  const burnCaptionsCb = $("#burn-captions-enabled");
+  if (burnCaptionsCb) {
+    const savedBc = window.localStorage.getItem(STORAGE_KEYS.burnCaptions);
+    if (savedBc === "1" || savedBc === "true") burnCaptionsCb.checked = true;
+    if (savedBc === "0" || savedBc === "false") burnCaptionsCb.checked = false;
+  }
   const sileroThr = $("#silero-vad-threshold");
   if (sileroThr) {
     const savedSt = window.localStorage.getItem(STORAGE_KEYS.sileroVadThreshold);
@@ -357,6 +364,12 @@ function persistNoiseModeToStorage(mode) {
 function persistRemoveMusicToStorage(enabled) {
   try {
     window.localStorage.setItem(STORAGE_KEYS.removeMusic, enabled ? "1" : "0");
+  } catch (_) {}
+}
+
+function persistBurnCaptionsToStorage(enabled) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.burnCaptions, enabled ? "1" : "0");
   } catch (_) {}
 }
 
@@ -1516,9 +1529,11 @@ $("#run-selected").addEventListener("click", async () => {
   const noiseReductionEnabled = Boolean($("#noise-reduction-enabled")?.checked);
   const noiseReductionMode = ($("#noise-reduction-mode")?.value || "auto").toLowerCase();
   const removeMusicEnabled = Boolean($("#remove-music-enabled")?.checked);
+  const burnCaptionsEnabled = Boolean($("#burn-captions-enabled")?.checked);
   persistCutTuningToStorage(cutMergeGapSec, cutMinDurationSec);
   persistNoiseModeToStorage(noiseReductionMode);
   persistRemoveMusicToStorage(removeMusicEnabled);
+  persistBurnCaptionsToStorage(burnCaptionsEnabled);
   persistTrimMethodToStorage(trimMethod);
   persistSileroVadThresholdToStorage($("#silero-vad-threshold")?.value);
 
@@ -1528,16 +1543,13 @@ $("#run-selected").addEventListener("click", async () => {
   if (activeDownloads <= 0) {
     $("#media-status").textContent = "Keine aktiven Downloads. Starte Verarbeitung direkt...";
   } else {
-    const action = await askStartWhileDownloadsRunning(activeDownloads);
-    if (action === "wait") {
-      $("#media-status").textContent = `Warte auf ${activeDownloads} aktive Downloads...`;
-      const ready = await waitForDownloadsToFinish(sourceItems);
-      if (!ready) {
-        $("#media-status").textContent = "Warten auf Downloads abgebrochen (Timeout). Bitte erneut starten.";
-        return;
-      }
-      $("#media-status").textContent = "Downloads abgeschlossen. Starte Verarbeitung direkt...";
+    $("#media-status").textContent = `Warte auf ${activeDownloads} aktive Downloads...`;
+    const ready = await waitForDownloadsToFinish(sourceItems);
+    if (!ready) {
+      $("#media-status").textContent = "Warten auf Downloads abgebrochen (Timeout). Bitte erneut starten.";
+      return;
     }
+    $("#media-status").textContent = "Downloads abgeschlossen. Starte Verarbeitung direkt...";
   }
   const skippedNotReady = sourceItems.filter(
     (it) => itemProcessingStatus(it).toUpperCase() === "PROCESSING"
@@ -1586,6 +1598,7 @@ $("#run-selected").addEventListener("click", async () => {
           noise_reduction: noise.enabled,
           noise_reduction_mode: noise.mode,
           remove_music: removeMusicEnabled,
+          burn_captions: burnCaptionsEnabled,
         };
         if (method === "silero_vad") {
           payloadTesting.silero_vad_threshold = parseSileroVadThreshold($("#silero-vad-threshold")?.value);
@@ -1609,6 +1622,7 @@ $("#run-selected").addEventListener("click", async () => {
       noise_reduction: noiseReductionEnabled,
       noise_reduction_mode: noiseReductionMode,
       remove_music: removeMusicEnabled,
+      burn_captions: burnCaptionsEnabled,
     };
     if (trimMethod === "silero_vad") {
       payloadRun.silero_vad_threshold = parseSileroVadThreshold($("#silero-vad-threshold")?.value);
@@ -1628,7 +1642,7 @@ $("#run-selected").addEventListener("click", async () => {
   loadJobs();
   const jobsStatus = $("#jobs-status");
   if (jobsStatus) {
-    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise: ${noiseReductionEnabled ? noiseReductionMode : "aus"}, Musik entfernen: ${removeMusicEnabled ? "an" : "aus"}): ${queuedCount} eingereiht, ${Math.max(skippedCount, localSkipped)} übersprungen${notReadyInfo}`;
+    jobsStatus.textContent = `Verarbeitung (${trimMethod}, Noise: ${noiseReductionEnabled ? noiseReductionMode : "aus"}, Musik entfernen: ${removeMusicEnabled ? "an" : "aus"}, Untertitel: ${burnCaptionsEnabled ? "an" : "aus"}): ${queuedCount} eingereiht, ${Math.max(skippedCount, localSkipped)} übersprungen${notReadyInfo}`;
   }
 });
 
@@ -2941,6 +2955,9 @@ applyVisibleTrimModesToDropdown();
 restoreCutTuningFromStorage();
 $("#remove-music-enabled")?.addEventListener("change", () => {
   persistRemoveMusicToStorage(Boolean($("#remove-music-enabled")?.checked));
+});
+$("#burn-captions-enabled")?.addEventListener("change", () => {
+  persistBurnCaptionsToStorage(Boolean($("#burn-captions-enabled")?.checked));
 });
 updateOpenAiTuningVisibility();
 loadTinderStateFromStorage();

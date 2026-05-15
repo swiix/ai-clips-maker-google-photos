@@ -249,6 +249,7 @@ class EnqueueBody(BaseModel):
     noise_reduction: Optional[bool] = True
     noise_reduction_mode: Optional[str] = "auto"
     remove_music: Optional[bool] = False
+    burn_captions: Optional[bool] = False
     silero_vad_threshold: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -771,6 +772,7 @@ def enqueue_jobs(body: EnqueueBody, conn: DbDep) -> dict[str, Any]:
         "noise_reduction": noise_reduction_enabled,
         "noise_reduction_mode": noise_mode,
         "remove_music": bool(body.remove_music),
+        "burn_captions": bool(body.burn_captions),
     }
     if cut_merge_gap_sec is not None:
         options["cut_merge_gap_sec"] = cut_merge_gap_sec
@@ -824,6 +826,7 @@ def _trim_job_type_and_options(body: EnqueueBody) -> tuple[str, str]:
         payload["noise_reduction"] = noise_reduction_enabled
         payload["noise_reduction_mode"] = noise_mode
         payload["remove_music"] = bool(body.remove_music)
+        payload["burn_captions"] = bool(body.burn_captions)
         if cut_merge_gap_sec is not None:
             payload["cut_merge_gap_sec"] = cut_merge_gap_sec
         if cut_min_duration_sec is not None:
@@ -958,6 +961,19 @@ def preflight(settings: SettingsDep) -> dict[str, Any]:
             "name": "pyannote_pipeline",
             "ok": pyannote_ok,
             "detail": pyannote_detail,
+        }
+    )
+
+    openai_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
+    checks.append(
+        {
+            "name": "openai_api_key",
+            "ok": True,
+            "detail": (
+                "OpenAI API key available (speech trim / burned captions)"
+                if openai_key
+                else "Warning: OPENAI_API_KEY missing — required for OpenAI trim and burned captions"
+            ),
         }
     )
 

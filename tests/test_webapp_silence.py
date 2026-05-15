@@ -231,6 +231,34 @@ def test_api_enqueue_clip_pipeline_persists_cut_controls(tmp_path: Path):
     assert opts.get("remove_music") is False
 
 
+def test_api_enqueue_burn_captions_persisted(tmp_path: Path):
+    db_path = tmp_path / "app.db"
+    conn = dbmod.connect(db_path)
+    dbmod.prepare_database(conn)
+    conn.close()
+
+    s = Settings(data_dir=tmp_path, output_dir=tmp_path / "outputs", cache_dir=tmp_path / "cache")
+    app.dependency_overrides = {}
+    app.dependency_overrides[__import__("webapp.main", fromlist=["_settings_dep"])._settings_dep] = lambda: s
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/jobs/silence-remove",
+        json={
+            "items": [{"id": "m_cap", "baseUrl": "https://x", "filename": "a.mp4"}],
+            "trim_method": "silence_balanced",
+            "burn_captions": True,
+        },
+    )
+    assert resp.status_code == 200
+    c2 = dbmod.connect(db_path)
+    dbmod.prepare_database(c2)
+    row = c2.execute("SELECT job_options FROM jobs WHERE media_item_id = 'm_cap'").fetchone()
+    c2.close()
+    opts = json.loads(str(row["job_options"] or "{}"))
+    assert opts.get("burn_captions") is True
+
+
 def test_api_enqueue_remove_music_persisted(tmp_path: Path):
     db_path = tmp_path / "app.db"
     conn = dbmod.connect(db_path)

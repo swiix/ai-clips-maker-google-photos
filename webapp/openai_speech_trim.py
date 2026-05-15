@@ -82,6 +82,7 @@ def transcribe_verbose_json(
     *,
     model: str = "whisper-1",
     timeout_sec: float = 600.0,
+    include_word_timestamps: bool = False,
 ) -> dict[str, Any]:
     path = Path(audio_path)
     data_bytes = path.read_bytes()
@@ -90,15 +91,19 @@ def transcribe_verbose_json(
             "Audio file exceeds OpenAI transcription size limit (~25MB). "
             "Try a shorter video or lower bitrate extract."
         )
+    form_data: list[tuple[str, str]] = [
+        ("model", model),
+        ("response_format", "verbose_json"),
+    ]
+    if include_word_timestamps:
+        form_data.append(("timestamp_granularities[]", "word"))
+        form_data.append(("timestamp_granularities[]", "segment"))
     with httpx.Client(timeout=timeout_sec) as client:
         resp = client.post(
             OPENAI_TRANSCRIPTIONS_URL,
             headers={"Authorization": f"Bearer {api_key}"},
             files={"file": (path.name, data_bytes, "audio/mpeg")},
-            data={
-                "model": model,
-                "response_format": "verbose_json",
-            },
+            data=form_data,
         )
     try:
         resp.raise_for_status()
