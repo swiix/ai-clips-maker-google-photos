@@ -21,10 +21,36 @@ def test_backfill_transcription_job_costs(tmp_path: Path):
         progress=1.0,
         duration_seconds=120.0,
     )
-    assert backfill_transcription_job_costs(conn, usd_per_minute=0.006) == 1
+    assert backfill_transcription_job_costs(conn, fallback_usd_per_minute=0.006) == 1
     row = conn.execute(
         "SELECT openai_cost_usd FROM transcription_jobs WHERE id = ?",
         (job_id,),
     ).fetchone()
     assert float(row["openai_cost_usd"]) == 0.012
-    assert backfill_transcription_job_costs(conn, usd_per_minute=0.006) == 0
+    assert backfill_transcription_job_costs(conn, fallback_usd_per_minute=0.006) == 0
+
+
+def test_backfill_transcription_job_costs_uses_model_rate(tmp_path: Path):
+    db = tmp_path / "app.db"
+    conn = connect(db)
+    init_db(conn)
+    job_id = create_transcription_job(
+        conn,
+        filename="mini.mp3",
+        input_path=str(tmp_path / "mini.mp3"),
+        model="gpt-4o-mini-transcribe",
+    )
+    update_transcription_job(
+        conn,
+        job_id,
+        status="done",
+        phase="done",
+        progress=1.0,
+        duration_seconds=600.0,
+    )
+    assert backfill_transcription_job_costs(conn, fallback_usd_per_minute=0.006) == 1
+    row = conn.execute(
+        "SELECT openai_cost_usd FROM transcription_jobs WHERE id = ?",
+        (job_id,),
+    ).fetchone()
+    assert float(row["openai_cost_usd"]) == 0.03

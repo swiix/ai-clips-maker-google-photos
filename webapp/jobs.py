@@ -88,6 +88,12 @@ def start_worker(conn_factory, settings: "Settings") -> None:
                 conn.close()
             _task_queue.task_done()
 
+    if _worker_count > 1:
+        logger.warning(
+            "worker_concurrency=%s: multiple clip workers can crash PyTorch on macOS; "
+            "set WORKER_CONCURRENCY=1 in .env if you see Python aborts during diarization/VAD.",
+            _worker_count,
+        )
     for idx in range(_worker_count):
         threading.Thread(target=loop, name=f"clip-worker-{idx+1}", daemon=True).start()
 
@@ -358,7 +364,10 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                 progress=0.40,
             )
             model = settings.openai_transcription_model or "whisper-1"
-            usd_per_min = float(settings.openai_whisper_usd_per_minute)
+            usd_per_min = transcription_usd_per_minute(
+                model,
+                fallback_usd_per_minute=float(settings.openai_whisper_usd_per_minute),
+            )
             merge_gap_sec = 0.35
             min_segment_sec = 0.04
             try:
@@ -652,17 +661,19 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                         progress=0.56,
                     )
                     try:
+                        from ai_clips_maker.utils.pytorch import torch_inference_lock
                         from webapp.vad_speech_trim import trim_video_silero_vad
 
-                        result = trim_video_silero_vad(
-                            str(processing_input),
-                            str(output_dir),
-                            run_prefix,
-                            merge_gap_sec=merge_gap,
-                            min_segment_sec=min_seg,
-                            vad_threshold=vad_thr,
-                            music_exclude_intervals=music_intervals or None,
-                        )
+                        with torch_inference_lock():
+                            result = trim_video_silero_vad(
+                                str(processing_input),
+                                str(output_dir),
+                                run_prefix,
+                                merge_gap_sec=merge_gap,
+                                min_segment_sec=min_seg,
+                                vad_threshold=vad_thr,
+                                music_exclude_intervals=music_intervals or None,
+                            )
                     except Exception as exc:
                         err_msg = str(exc)
                         if "Silero VAD found no speech segments" in err_msg:
@@ -1014,14 +1025,17 @@ def _run_one_job(conn: sqlite3.Connection, settings: Settings, job_id: int) -> N
                     progress=progress,
                 )
 
-            result = run_clips_pipeline(
-                str(clip_input),
-                str(output_dir),
-                token,
-                source_metadata=meta,
-                output_prefix=run_prefix,
-                status_callback=on_progress,
-            )
+            from ai_clips_maker.utils.pytorch import torch_inference_lock
+
+            with torch_inference_lock():
+                result = run_clips_pipeline(
+                    str(clip_input),
+                    str(output_dir),
+                    token,
+                    source_metadata=meta,
+                    output_prefix=run_prefix,
+                    status_callback=on_progress,
+                )
             if result.error:
                 dbmod.upsert_job(
                     conn,
@@ -1212,7 +1226,12 @@ def _burn_captions_on_exports(
     )
 
     model = settings.openai_transcription_model or "whisper-1"
-    usd_per_min = float(settings.openai_whisper_usd_per_minute)
+    from webapp.openai_cost import transcription_usd_per_minute
+
+    usd_per_min = transcription_usd_per_minute(
+        model,
+        fallback_usd_per_minute=float(settings.openai_whisper_usd_per_minute),
+    )
     total_billed = 0.0
 
     dbmod.upsert_job(

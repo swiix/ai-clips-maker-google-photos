@@ -499,16 +499,17 @@ def list_transcription_jobs(conn: sqlite3.Connection, limit: int = 200) -> list[
 def backfill_transcription_job_costs(
     conn: sqlite3.Connection,
     *,
-    usd_per_minute: float = 0.006,
+    fallback_usd_per_minute: float = 0.006,
 ) -> int:
     """
-    Persist estimated Whisper USD for finished transcription jobs missing openai_cost_usd.
+    Persist estimated transcription USD for finished jobs missing openai_cost_usd.
+    Uses each job's stored model for the correct OpenAI per-minute rate.
     """
-    from webapp.openai_cost import estimate_whisper_cost_usd
+    from webapp.openai_cost import estimate_transcription_cost_usd
 
     rows = conn.execute(
         """
-        SELECT id, duration_seconds
+        SELECT id, model, duration_seconds
         FROM transcription_jobs
         WHERE openai_cost_usd IS NULL
           AND lower(status) = 'done'
@@ -519,9 +520,10 @@ def backfill_transcription_job_costs(
     updated = 0
     with _lock:
         for row in rows:
-            cost = estimate_whisper_cost_usd(
+            cost = estimate_transcription_cost_usd(
                 row["duration_seconds"],
-                usd_per_minute=usd_per_minute,
+                model=row["model"],
+                fallback_usd_per_minute=fallback_usd_per_minute,
             )
             if cost is None:
                 continue

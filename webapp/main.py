@@ -36,7 +36,11 @@ from webapp.google_photos import (
     save_credentials,
 )
 from webapp.logging_setup import configure_logging, install_global_exception_hooks
-from webapp.openai_cost import estimate_whisper_cost_usd
+from webapp.openai_cost import (
+    OPENAI_TRANSCRIPTION_USD_PER_MINUTE,
+    estimate_transcription_cost_usd,
+    transcription_usd_per_minute,
+)
 from webapp.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -123,7 +127,7 @@ async def lifespan(app: FastAPI):
     prepare_database(conn)
     backfilled = dbmod.backfill_transcription_job_costs(
         conn,
-        usd_per_minute=float(settings.openai_whisper_usd_per_minute),
+        fallback_usd_per_minute=float(settings.openai_whisper_usd_per_minute),
     )
     if backfilled:
         logger.info("Backfilled openai_cost_usd for %s transcription job(s)", backfilled)
@@ -746,9 +750,9 @@ async def upload_transcription_audio(
 
 @app.get("/api/transcriptions")
 def list_transcriptions(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
-    usd_per_min = float(settings.openai_whisper_usd_per_minute)
+    fallback_rate = float(settings.openai_whisper_usd_per_minute)
     rows = [
-        _enrich_transcription_job_row(row, usd_per_min)
+        _enrich_transcription_job_row(row, fallback_rate)
         for row in dbmod.list_transcription_jobs(conn)
     ]
     total_usd = round(
@@ -757,17 +761,22 @@ def list_transcriptions(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
     )
     return {
         "jobs": rows,
-        "openai_usd_per_minute_assumed": usd_per_min,
+        "openai_transcription_rates_usd_per_minute": dict(OPENAI_TRANSCRIPTION_USD_PER_MINUTE),
+        "openai_usd_per_minute_assumed": fallback_rate,
         "openai_cost_total_usd": total_usd,
         "disclaimer_de": (
-            "Geschätzte Whisper-Kosten pro Datei: Audio-Dauer × OPENAI_WHISPER_USD_PER_MINUTE "
-            "(Standard $0,006/Min). Entspricht der Sekunden-Nutzung im OpenAI-Dashboard."
+            "Geschätzte Transkriptions-Kosten pro Datei: Audio-Dauer × Modell-Rate "
+            "(whisper-1 / gpt-4o-transcribe: $0,006/Min, gpt-4o-mini-transcribe: $0,003/Min). "
+            "Entspricht der Sekunden-Nutzung im OpenAI-Dashboard."
         ),
     }
 
 
-def _enrich_transcription_job_row(row: dict[str, Any], usd_per_min: float) -> dict[str, Any]:
+def _enrich_transcription_job_row(row: dict[str, Any], fallback_usd_per_min: float) -> dict[str, Any]:
     out = dict(row)
+    model = str(out.get("model") or "whisper-1")
+    rate = transcription_usd_per_minute(model, fallback_usd_per_minute=fallback_usd_per_min)
+    out["openai_usd_per_minute"] = rate
     stored = out.get("openai_cost_usd")
     if stored is not None:
         try:
@@ -781,7 +790,11 @@ def _enrich_transcription_job_row(row: dict[str, Any], usd_per_min: float) -> di
         out["openai_cost_usd"] = None
         out["openai_cost_estimated"] = False
         return out
-    cost = estimate_whisper_cost_usd(out.get("duration_seconds"), usd_per_minute=usd_per_min)
+    cost = estimate_transcription_cost_usd(
+        out.get("duration_seconds"),
+        model=model,
+        fallback_usd_per_minute=fallback_usd_per_min,
+    )
     out["openai_cost_usd"] = cost
     out["openai_cost_estimated"] = cost is not None
     return out
@@ -1253,9 +1266,11 @@ def api_job_stats(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
         "totals": totals,
         "openai_usd_per_minute_assumed": usd_per_min,
         "disclaimer_de": (
-            "OpenAI: geschätzte Kosten aus transkribierter Audio-Länge × OPENAI_WHISPER_USD_PER_MINUTE. "
+            "OpenAI: geschätzte Kosten aus transkribierter Audio-Länge × Modell-Rate "
+            "(whisper-1 / gpt-4o-transcribe: $0,006/Min, gpt-4o-mini-transcribe: $0,003/Min). "
             "Im OpenAI-Dashboard erscheint die Nutzung in USD (häufig als Guthaben/Credits angezeigt)."
         ),
+        "openai_transcription_rates_usd_per_minute": dict(OPENAI_TRANSCRIPTION_USD_PER_MINUTE),
     }
 
 

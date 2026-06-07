@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from webapp import db as dbmod
-from webapp.openai_cost import estimate_whisper_cost_usd
+from webapp.openai_cost import estimate_transcription_cost_usd, transcription_usd_per_minute
 
 if TYPE_CHECKING:
     import sqlite3
@@ -315,9 +315,10 @@ def _run_job(conn: "sqlite3.Connection", settings: "Settings", job_id: int) -> N
         texts.append(f"{header}\n{text}".strip())
 
     out_txt.write_text("\n\n".join(texts).strip() + "\n", encoding="utf-8")
-    cost_usd = estimate_whisper_cost_usd(
+    cost_usd = estimate_transcription_cost_usd(
         duration if duration > 0 else total,
-        usd_per_minute=float(settings.openai_whisper_usd_per_minute),
+        model=model,
+        fallback_usd_per_minute=float(settings.openai_whisper_usd_per_minute),
     )
     dbmod.update_transcription_job(
         conn,
