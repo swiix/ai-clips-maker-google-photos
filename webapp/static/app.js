@@ -2228,8 +2228,10 @@ async function loadTranscriptionJobs() {
         payload.openai_cost_total_usd != null && !Number.isNaN(Number(payload.openai_cost_total_usd))
           ? ` Summe (sichtbare Jobs): ${formatUsdAmount(payload.openai_cost_total_usd)}.`
           : "";
-      discEl.textContent = `${payload.disclaimer_de || ""}${rateHint}${totalHint} * = aus Dauer geschätzt (ältere Jobs).`;
-      discEl.classList.toggle("hidden", !payload.disclaimer_de && !rateHint);
+      const hasEstimated = rows.some((row) => row.openai_cost_estimated && row.openai_cost_usd != null);
+      const estimatedHint = hasEstimated ? " * = aus Dauer geschätzt (noch nicht in DB gespeichert)." : "";
+      discEl.textContent = `${payload.disclaimer_de || ""}${rateHint}${totalHint}${estimatedHint}`;
+      discEl.classList.toggle("hidden", !payload.disclaimer_de && !rateHint && !totalHint);
     }
     body.innerHTML = "";
     for (const row of rows || []) {
