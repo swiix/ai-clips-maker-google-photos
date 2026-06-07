@@ -22,6 +22,7 @@ from ai_clips_maker.media.audiovideo_file import AudioVideoFile
 from ai_clips_maker.pipeline.crop_select import safe_dir_slug
 
 from webapp import db as dbmod
+from webapp.openai_cost import transcription_usd_per_minute
 
 if TYPE_CHECKING:
     from webapp.settings import Settings
@@ -1226,8 +1227,6 @@ def _burn_captions_on_exports(
     )
 
     model = settings.openai_transcription_model or "whisper-1"
-    from webapp.openai_cost import transcription_usd_per_minute
-
     usd_per_min = transcription_usd_per_minute(
         model,
         fallback_usd_per_minute=float(settings.openai_whisper_usd_per_minute),
