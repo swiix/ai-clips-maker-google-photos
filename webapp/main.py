@@ -121,6 +121,12 @@ async def lifespan(app: FastAPI):
     settings.cache_dir.mkdir(parents=True, exist_ok=True)
     conn = connect(settings.sqlite_path)
     prepare_database(conn)
+    backfilled = dbmod.backfill_transcription_job_costs(
+        conn,
+        usd_per_minute=float(settings.openai_whisper_usd_per_minute),
+    )
+    if backfilled:
+        logger.info("Backfilled openai_cost_usd for %s transcription job(s)", backfilled)
     conn.close()
 
     def conn_factory():

@@ -496,6 +496,45 @@ def list_transcription_jobs(conn: sqlite3.Connection, limit: int = 200) -> list[
     return [dict(r) for r in rows]
 
 
+def backfill_transcription_job_costs(
+    conn: sqlite3.Connection,
+    *,
+    usd_per_minute: float = 0.006,
+) -> int:
+    """
+    Persist estimated Whisper USD for finished transcription jobs missing openai_cost_usd.
+    """
+    from webapp.openai_cost import estimate_whisper_cost_usd
+
+    rows = conn.execute(
+        """
+        SELECT id, duration_seconds
+        FROM transcription_jobs
+        WHERE openai_cost_usd IS NULL
+          AND lower(status) = 'done'
+          AND duration_seconds IS NOT NULL
+          AND duration_seconds > 0
+        """
+    ).fetchall()
+    updated = 0
+    with _lock:
+        for row in rows:
+            cost = estimate_whisper_cost_usd(
+                row["duration_seconds"],
+                usd_per_minute=usd_per_minute,
+            )
+            if cost is None:
+                continue
+            conn.execute(
+                "UPDATE transcription_jobs SET openai_cost_usd = ? WHERE id = ?",
+                (cost, int(row["id"])),
+            )
+            updated += 1
+        if updated:
+            conn.commit()
+    return updated
+
+
 def create_or_requeue_job(
     conn: sqlite3.Connection,
     media_item_id: str,
