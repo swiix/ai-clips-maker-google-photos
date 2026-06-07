@@ -114,7 +114,7 @@
     <section id="panel-tinderwatch" class="panel tinder-panel">
       <div class="tinder-toolbar">
         <button type="button" id="tinder-refresh" class="btn">Clips neu laden</button>
-        <button type="button" id="tinder-skip-all" class="btn" title="Alle offenen Clips in der Queue als Skip markieren">Alle überspringen</button>
+        <button type="button" id="tinder-skip-all" class="btn" title="Alle offenen Clips aus TinderWatch entfernen (ohne Like/Dislike-Statistik)">Alle überspringen</button>
         <button type="button" id="tinder-download-all" class="btn primary">Alle Downloads</button>
         <button type="button" id="tinder-export-likes" class="btn">Like-Liste herunterladen</button>
       </div>
@@ -160,7 +160,10 @@
         </aside>
       </div>
       <section class="tinder-stats">
-        <h3>Match-Statistik</h3>
+        <div class="tinder-stats-head">
+          <h3>Match-Statistik</h3>
+          <button type="button" id="tinder-reset-stats" class="btn settings-danger-btn" title="Löscht alle Likes, Dislikes, Downloads und die Statistik (lokal und auf dem Server)">Statistik zurücksetzen</button>
+        </div>
         <div id="tinder-stats-root"></div>
       </section>
     </section>
@@ -212,9 +215,10 @@
         <button type="button" id="transcription-refresh" class="btn">Aktualisieren</button>
       </div>
       <p id="transcription-status" class="muted">Lade Transkriptionsjobs…</p>
+      <p id="transcription-cost-disclaimer" class="muted stats-disclaimer hidden"></p>
       <table class="jobs">
         <thead>
-          <tr><th>ID</th><th>Datei</th><th>Model</th><th>Sprache</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Dauer (s)</th><th>Aktion</th><th>Fehler</th></tr>
+          <tr><th>ID</th><th>Datei</th><th>Model</th><th>Sprache</th><th>Status</th><th>Phase</th><th>Fortschritt</th><th>Dauer (s)</th><th>Kosten (USD)</th><th>Aktion</th><th>Fehler</th></tr>
         </thead>
         <tbody id="transcription-body"></tbody>
       </table>
@@ -336,6 +340,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=wait-for-download-before-run1" defer></script>
+  <script src="/static/app.js?v=tinder-reset-stats1" defer></script>
 </body>
 </html>

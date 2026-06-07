@@ -36,6 +36,7 @@ from webapp.google_photos import (
     save_credentials,
 )
 from webapp.logging_setup import configure_logging, install_global_exception_hooks
+from webapp.openai_cost import estimate_whisper_cost_usd
 from webapp.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,17 @@ async def lifespan(app: FastAPI):
         log_backup_count=settings.log_backup_count,
     )
     install_global_exception_hooks(logger)
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    try:
+        import torch
+
+        from ai_clips_maker.utils.pytorch import configure_torch_threading
+
+        configure_torch_threading()
+        logger.info("PyTorch thread pools limited for stable local inference")
+    except Exception:
+        logger.debug("PyTorch not available at startup", exc_info=True)
     logger.info("Logging initialized (dir=%s, level=%s)", settings.log_dir, settings.log_level)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.output_dir.mkdir(parents=True, exist_ok=True)
@@ -523,6 +535,30 @@ def cached_video(
     return FileResponse(cache_path)
 
 
+_CACHE_DURATION_PROBE: dict[str, tuple[float, float]] = {}
+
+
+def _probe_cached_duration_seconds(cache_path: Path) -> Optional[float]:
+    key = str(cache_path.resolve())
+    try:
+        st = cache_path.stat()
+    except OSError:
+        return None
+    cached = _CACHE_DURATION_PROBE.get(key)
+    if cached and cached[0] == st.st_mtime:
+        return cached[1]
+    try:
+        from webapp.silence_remover import probe_duration_seconds
+
+        duration = float(probe_duration_seconds(str(cache_path)))
+    except Exception:
+        return None
+    if duration <= 0:
+        return None
+    _CACHE_DURATION_PROBE[key] = (st.st_mtime, duration)
+    return duration
+
+
 @app.get("/api/cache/status")
 def cached_video_status(
     settings: SettingsDep,
@@ -531,9 +567,11 @@ def cached_video_status(
 ) -> dict[str, Any]:
     cache_path = _cache_target_path(settings, media_item_id, filename)
     if not cache_path.is_file():
-        return {"ready": False, "size_bytes": 0}
+        return {"ready": False, "size_bytes": 0, "duration_seconds": None}
     size = cache_path.stat().st_size
-    return {"ready": size > 0, "size_bytes": size}
+    ready = size > 0
+    duration_seconds = _probe_cached_duration_seconds(cache_path) if ready else None
+    return {"ready": ready, "size_bytes": size, "duration_seconds": duration_seconds}
 
 
 def _cache_bucket_for_file(path: Path) -> str:
@@ -641,6 +679,12 @@ def tinder_reviews_list(conn: DbDep) -> list[dict[str, Any]]:
     return dbmod.list_tinder_reviews(conn)
 
 
+@app.post("/api/tinder/reviews/reset")
+def tinder_reviews_reset(conn: DbDep) -> dict[str, Any]:
+    deleted = dbmod.clear_all_tinder_reviews(conn)
+    return {"status": "ok", "deleted": deleted}
+
+
 @app.post("/api/tinder/reviews")
 def tinder_reviews_upsert(body: TinderReviewBody, conn: DbDep) -> dict[str, Any]:
     clip_key = str(body.clip_key or "").strip()
@@ -695,16 +739,54 @@ async def upload_transcription_audio(
 
 
 @app.get("/api/transcriptions")
-def list_transcriptions(conn: DbDep) -> list[dict[str, Any]]:
-    return dbmod.list_transcription_jobs(conn)
+def list_transcriptions(conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
+    usd_per_min = float(settings.openai_whisper_usd_per_minute)
+    rows = [
+        _enrich_transcription_job_row(row, usd_per_min)
+        for row in dbmod.list_transcription_jobs(conn)
+    ]
+    total_usd = round(
+        sum(float(r["openai_cost_usd"]) for r in rows if r.get("openai_cost_usd") is not None),
+        6,
+    )
+    return {
+        "jobs": rows,
+        "openai_usd_per_minute_assumed": usd_per_min,
+        "openai_cost_total_usd": total_usd,
+        "disclaimer_de": (
+            "Geschätzte Whisper-Kosten pro Datei: Audio-Dauer × OPENAI_WHISPER_USD_PER_MINUTE "
+            "(Standard $0,006/Min). Entspricht der Sekunden-Nutzung im OpenAI-Dashboard."
+        ),
+    }
+
+
+def _enrich_transcription_job_row(row: dict[str, Any], usd_per_min: float) -> dict[str, Any]:
+    out = dict(row)
+    stored = out.get("openai_cost_usd")
+    if stored is not None:
+        try:
+            out["openai_cost_usd"] = round(float(stored), 6)
+            out["openai_cost_estimated"] = False
+            return out
+        except (TypeError, ValueError):
+            pass
+    status = str(out.get("status") or "").lower()
+    if status not in ("done", "running"):
+        out["openai_cost_usd"] = None
+        out["openai_cost_estimated"] = False
+        return out
+    cost = estimate_whisper_cost_usd(out.get("duration_seconds"), usd_per_minute=usd_per_min)
+    out["openai_cost_usd"] = cost
+    out["openai_cost_estimated"] = cost is not None
+    return out
 
 
 @app.get("/api/transcriptions/{job_id}")
-def get_transcription(job_id: int, conn: DbDep) -> dict[str, Any]:
+def get_transcription(job_id: int, conn: DbDep, settings: SettingsDep) -> dict[str, Any]:
     row = dbmod.get_transcription_job(conn, job_id)
     if not row:
         raise HTTPException(404, "Transcription job not found")
-    return row
+    return _enrich_transcription_job_row(row, float(settings.openai_whisper_usd_per_minute))
 
 
 @app.get("/api/transcriptions/{job_id}/text")

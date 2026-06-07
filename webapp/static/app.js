@@ -7,6 +7,10 @@ const state = {
   jobStatusById: new Map(),
   cacheStateById: new Map(),
   cacheProgressById: new Map(),
+  videoDurationById: new Map(),
+  cacheDownloadTimingById: new Map(),
+  cachePrecachedById: new Map(),
+  cacheSummaryTimer: null,
   cachePollTimer: null,
   jobsPollTimer: null,
   transcriptionPollTimer: null,
@@ -243,7 +247,7 @@ function migrateLegacyTinderKeys() {
 function computeUnseenFromClips(clips) {
   let unseen = 0;
   for (const clip of clips || []) {
-    if (!isReviewedDecision(resolveTinderDecision(clip)?.decision)) unseen += 1;
+    if (!isQueueHiddenDecision(resolveTinderDecision(clip)?.decision)) unseen += 1;
   }
   return unseen;
 }
@@ -697,18 +701,176 @@ function cachedVideoUrl(it, cacheBust = false) {
 
 async function fetchCachedStatus(it) {
   const id = itemKey(it);
-  if (!id) return { ready: false, size_bytes: 0 };
+  if (!id) return { ready: false, size_bytes: 0, duration_seconds: null };
   const u = new URL("/api/cache/status", window.location.origin);
   u.searchParams.set("media_item_id", id);
   const filename = itemFilename(it);
   if (filename) u.searchParams.set("filename", filename);
   try {
     const r = await fetch(u.toString());
-    if (!r.ok) return { ready: false, size_bytes: 0 };
+    if (!r.ok) return { ready: false, size_bytes: 0, duration_seconds: null };
     return await r.json();
   } catch (_) {
-    return { ready: false, size_bytes: 0 };
+    return { ready: false, size_bytes: 0, duration_seconds: null };
   }
+}
+
+function formatClockDuration(totalSec) {
+  if (totalSec === null || totalSec === undefined || !Number.isFinite(Number(totalSec)) || Number(totalSec) < 0) {
+    return "—";
+  }
+  const s = Math.round(Number(totalSec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function formatDownloadElapsed(totalSec) {
+  if (totalSec === null || totalSec === undefined || !Number.isFinite(Number(totalSec)) || Number(totalSec) < 0) {
+    return "—";
+  }
+  const sec = Number(totalSec);
+  if (sec < 1) return "< 1 s";
+  return `${sec.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
+}
+
+function setVideoDurationSec(id, seconds) {
+  if (!id || !Number.isFinite(Number(seconds)) || Number(seconds) <= 0) return;
+  state.videoDurationById.set(id, Number(seconds));
+  const node = document.querySelector(`.cache-video-duration[data-cache-id="${CSS.escape(id)}"]`);
+  if (node) node.textContent = `Video-Dauer: ${formatClockDuration(Number(seconds))}`;
+  updateCacheSummary();
+}
+
+function getDownloadTiming(id) {
+  if (!id) return null;
+  if (!state.cacheDownloadTimingById.has(id)) {
+    state.cacheDownloadTimingById.set(id, { startedAt: null, finishedAt: null });
+  }
+  return state.cacheDownloadTimingById.get(id);
+}
+
+function markDownloadStarted(id) {
+  if (!id || state.cachePrecachedById.get(id)) return;
+  const timing = getDownloadTiming(id);
+  if (!timing || timing.startedAt) return;
+  timing.startedAt = Date.now();
+  updateDownloadDurationDisplay(id);
+  ensureCacheSummaryTicker();
+  updateCacheSummary();
+}
+
+function markDownloadFinished(id) {
+  if (!id) return;
+  const timing = getDownloadTiming(id);
+  if (!timing || timing.finishedAt) return;
+  if (!timing.startedAt) {
+    if (state.cachePrecachedById.get(id)) {
+      updateDownloadDurationDisplay(id);
+      return;
+    }
+    timing.startedAt = Date.now();
+  }
+  timing.finishedAt = Date.now();
+  updateDownloadDurationDisplay(id);
+  updateCacheSummary();
+}
+
+function getDownloadElapsedSec(id) {
+  const timing = getDownloadTiming(id);
+  if (!timing) return null;
+  if (state.cachePrecachedById.get(id)) return 0;
+  if (timing.finishedAt && timing.startedAt) {
+    return Math.max(0, (timing.finishedAt - timing.startedAt) / 1000);
+  }
+  if (timing.startedAt) return Math.max(0, (Date.now() - timing.startedAt) / 1000);
+  return null;
+}
+
+function updateDownloadDurationDisplay(id) {
+  const node = document.querySelector(`.cache-download-duration[data-cache-id="${CSS.escape(id)}"]`);
+  if (!node) return;
+  if (state.cachePrecachedById.get(id)) {
+    node.textContent = "Download: bereits lokal";
+    return;
+  }
+  const timing = getDownloadTiming(id);
+  const stateName = state.cacheStateById.get(id) || "pending";
+  if (timing?.finishedAt && timing.startedAt) {
+    node.textContent = `Download: ${formatDownloadElapsed(getDownloadElapsedSec(id))}`;
+    return;
+  }
+  if (timing?.startedAt && stateName === "loading") {
+    node.textContent = `Download: ${formatDownloadElapsed(getDownloadElapsedSec(id))} …`;
+    return;
+  }
+  if (stateName === "ready") {
+    node.textContent = "Download: —";
+    return;
+  }
+  node.textContent = "Download: —";
+}
+
+function ensureCacheSummaryTicker() {
+  if (state.cacheSummaryTimer) return;
+  state.cacheSummaryTimer = window.setInterval(() => {
+    const items = visibleItems().filter((it) => {
+      const mime = itemMimeType(it).toLowerCase();
+      return (mime.startsWith("video/") || itemType(it) === "VIDEO") && itemBaseUrl(it);
+    });
+    let hasLoading = false;
+    for (const it of items) {
+      const id = itemKey(it);
+      if ((state.cacheStateById.get(id) || "") === "loading") {
+        hasLoading = true;
+        updateDownloadDurationDisplay(id);
+      }
+    }
+    if (hasLoading) updateCacheSummary();
+    else if (state.cacheSummaryTimer) {
+      window.clearInterval(state.cacheSummaryTimer);
+      state.cacheSummaryTimer = null;
+    }
+  }, 500);
+}
+
+function cacheSummaryVideoItems() {
+  return visibleItems().filter((it) => {
+    const mime = itemMimeType(it).toLowerCase();
+    return (mime.startsWith("video/") || itemType(it) === "VIDEO") && itemBaseUrl(it);
+  });
+}
+
+function computeCacheDurationTotals(items) {
+  let totalVideoSec = 0;
+  let knownVideoCount = 0;
+  let totalDownloadSec = 0;
+  let knownDownloadCount = 0;
+  let activeDownloadSec = 0;
+  for (const it of items) {
+    const id = itemKey(it);
+    if (!id) continue;
+    const videoSec = state.videoDurationById.get(id);
+    if (Number.isFinite(videoSec) && videoSec > 0) {
+      totalVideoSec += videoSec;
+      knownVideoCount += 1;
+    }
+    const dlSec = getDownloadElapsedSec(id);
+    const stateName = state.cacheStateById.get(id) || "pending";
+    if (state.cachePrecachedById.get(id)) continue;
+    if (stateName === "loading" && dlSec != null) {
+      activeDownloadSec += dlSec;
+      continue;
+    }
+    const timing = getDownloadTiming(id);
+    if (timing?.finishedAt && timing.startedAt && dlSec != null) {
+      totalDownloadSec += dlSec;
+      knownDownloadCount += 1;
+    }
+  }
+  return { totalVideoSec, knownVideoCount, totalDownloadSec, knownDownloadCount, activeDownloadSec, total: items.length };
 }
 
 function setCacheState(id, text, stateClass) {
@@ -738,10 +900,7 @@ function updateCacheSummary() {
   const bar = $("#cache-summary-bar");
   if (!box || !text || !bar) return;
 
-  const items = visibleItems().filter((it) => {
-    const mime = itemMimeType(it).toLowerCase();
-    return (mime.startsWith("video/") || itemType(it) === "VIDEO") && itemBaseUrl(it);
-  });
+  const items = cacheSummaryVideoItems();
   const total = items.length;
   if (total === 0) {
     box.classList.add("hidden");
@@ -774,6 +933,15 @@ function updateCacheSummary() {
     weighted += state.cacheProgressById.get(id) || 0;
   }
   const pct = Math.round(weighted / total);
+  const dur = computeCacheDurationTotals(items);
+  const videoTotalLabel =
+    dur.knownVideoCount > 0
+      ? `${formatClockDuration(dur.totalVideoSec)} (${dur.knownVideoCount}/${dur.total})`
+      : "—";
+  const downloadParts = [];
+  if (dur.knownDownloadCount > 0) downloadParts.push(formatDownloadElapsed(dur.totalDownloadSec));
+  if (dur.activeDownloadSec > 0) downloadParts.push(`${formatDownloadElapsed(dur.activeDownloadSec)} aktiv`);
+  const downloadTotalLabel = downloadParts.length ? downloadParts.join(" + ") : "—";
   box.classList.remove("hidden");
   bar.style.width = `${pct}%`;
   text.innerHTML = `
@@ -782,6 +950,10 @@ function updateCacheSummary() {
       <span class="cache-summary-main-number">${ready}/${total}</span>
       <span class="cache-summary-main-label">bereit</span>
       <span class="cache-summary-main-pct">${pct}%</span>
+    </div>
+    <div class="cache-summary-metrics">
+      <span class="cache-summary-metric" title="Summe der Video-Längen (bekannte Dauer)">Video-Dauer gesamt: <strong>${escapeHtml(videoTotalLabel)}</strong></span>
+      <span class="cache-summary-metric" title="Summe abgeschlossener Downloads plus laufende">Download-Zeit gesamt: <strong>${escapeHtml(downloadTotalLabel)}</strong></span>
     </div>
     <div class="cache-badges">
       <span class="cache-badge ready">Ready ${ready}</span>
@@ -838,6 +1010,8 @@ function renderGrid() {
           <div class="meta muted">${escapeHtml(
             itemMimeType(it) || ""
           )}</div>
+          <div class="meta cache-video-duration" data-cache-id="${escapeHtml(id)}">Video-Dauer: —</div>
+          <div class="meta muted cache-download-duration" data-cache-id="${escapeHtml(id)}">Download: —</div>
           <div class="meta muted">Quelle: lokaler Cache (kein Live-Streaming)</div>
           <div class="cache-state pending" data-cache-id="${escapeHtml(id)}">Pruefe lokalen Status...</div>
           <div class="cache-item-progress">
@@ -872,8 +1046,9 @@ function renderGrid() {
     }
     video.addEventListener("loadedmetadata", () => {
       if (id) {
-        setCacheState(id, "Lokal bereit (abspielbar)", "ready");
-        setCacheProgress(id, 100);
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          setVideoDurationSec(id, video.duration);
+        }
       }
       if (video.videoWidth > 0 && video.videoHeight > 0) {
         video.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
@@ -881,6 +1056,7 @@ function renderGrid() {
     });
     video.addEventListener("loadstart", () => {
       if (id) {
+        markDownloadStarted(id);
         setCacheState(id, "Download laeuft...", "loading");
         setCacheProgress(id, Math.max(5, state.cacheProgressById.get(id) || 0));
       }
@@ -891,11 +1067,20 @@ function renderGrid() {
       const end = video.buffered.end(video.buffered.length - 1);
       const pct = (end / video.duration) * 100;
       if (pct > 0) setCacheProgress(id, pct);
+      if (pct >= 99) {
+        markDownloadFinished(id);
+        setCacheState(id, "Lokal bereit (abspielbar)", "ready");
+        setCacheProgress(id, 100);
+      }
     });
     video.addEventListener("canplay", () => {
       if (id) {
         setCacheState(id, "Lokal bereit (abspielbar)", "ready");
         setCacheProgress(id, 100);
+        markDownloadFinished(id);
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          setVideoDurationSec(id, video.duration);
+        }
       }
     });
     video.addEventListener("error", async () => {
@@ -904,8 +1089,13 @@ function renderGrid() {
       const status = String(itemProcessingStatus(item) || "").toUpperCase();
       const local = await fetchCachedStatus(item);
       if (local.ready) {
+        state.cachePrecachedById.set(id, true);
         setCacheState(id, "Lokal bereit (abspielbar)", "ready");
         setCacheProgress(id, 100);
+        if (local.duration_seconds != null && Number(local.duration_seconds) > 0) {
+          setVideoDurationSec(id, Number(local.duration_seconds));
+        }
+        updateDownloadDurationDisplay(id);
         return;
       }
 
@@ -952,11 +1142,18 @@ function renderGrid() {
     if (!id) return;
     const st = await fetchCachedStatus(it);
     if (st.ready) {
+      state.cachePrecachedById.set(id, true);
       setCacheState(id, "Lokal bereit (abspielbar)", "ready");
       setCacheProgress(id, 100);
+      if (st.duration_seconds != null && Number(st.duration_seconds) > 0) {
+        setVideoDurationSec(id, Number(st.duration_seconds));
+      }
+      updateDownloadDurationDisplay(id);
     } else {
+      state.cachePrecachedById.delete(id);
       setCacheState(id, "Noch nicht lokal. Beim Start wird heruntergeladen...", "pending");
       setCacheProgress(id, 0);
+      updateDownloadDurationDisplay(id);
     }
   });
   updateCacheSummary();
@@ -1013,16 +1210,49 @@ function formatRelativeFromEpoch(epochSeconds) {
   return rtf.format(-Math.round(diffSec / 2592000), "month");
 }
 
+function normalizeTrimModeKey(mode) {
+  const key = String(mode || "").trim().toLowerCase();
+  if (!key) return "unknown";
+  if (key === "openai_speech_trim") return "openai_speech";
+  if (key === "silence_remove" || key === "silence_unknown") return "unknown";
+  if (key === "clip_pipeline") return "clip_pipeline_ai";
+  return key;
+}
+
+function trimModeDisplayLabel(mode, clip = null) {
+  let key = normalizeTrimModeKey(mode);
+  if (key === "unknown" && clip) {
+    key = detectTrimMode(clip.folder || "", clip.sourceFilename || "", clip.video_url || "");
+  }
+  const fromUi = TRIM_METHOD_OPTIONS.find((o) => o.value === key);
+  if (fromUi) return fromUi.label;
+  const extra = {
+    silence_all: "Testing Mode · Stille (alle Profile)",
+    clip_pipeline_ai: "Clip Pipeline (AI)",
+    unknown: "Unbekannt",
+  };
+  if (extra[key]) return extra[key];
+  const legacy = trimMethodLabel(key);
+  if (legacy && legacy !== key) return legacy;
+  return key || "Unbekannt";
+}
+
 function trimMethodLabel(m) {
+  const key = normalizeTrimModeKey(m);
+  const fromUi = TRIM_METHOD_OPTIONS.find((o) => o.value === key);
+  if (fromUi) return fromUi.label;
   const map = {
     none: "Kein Schnitt · Original",
     silence_all: "Stille · alle Profile",
     silence_conservative: "Stille · Conservative",
     silence_balanced: "Stille · Balanced",
     silence_aggressive: "Stille · Aggressive",
+    silero_vad: "Silero VAD · nur Sprache (lokal)",
     openai_speech: "OpenAI · Sprache",
+    all_methods_testing: "Testing Mode · alle aktiven Modi",
+    clip_pipeline_ai: "Clip Pipeline (AI)",
   };
-  return map[m] || m || "";
+  return map[key] || key || "";
 }
 
 function formatUsdAmount(n) {
@@ -1206,8 +1436,25 @@ function renderJobTypeBadge(jobType) {
 }
 
 function resolveTrimMode(trimMethodLabelValue, optionsRaw, jobType) {
-  const label = String(trimMethodLabelValue || "").trim().toLowerCase();
-  if (label) return label;
+  let label = String(trimMethodLabelValue || "").trim().toLowerCase();
+  if (label === "openai_speech_trim") return "openai_speech";
+  if (label === "silence_remove") label = "";
+  else if (
+    label &&
+    [
+      "none",
+      "silence_all",
+      "silence_conservative",
+      "silence_balanced",
+      "silence_aggressive",
+      "silero_vad",
+      "openai_speech",
+      "all_methods_testing",
+      "clip_pipeline_ai",
+    ].includes(label)
+  ) {
+    return label;
+  }
   try {
     const parsed = JSON.parse(optionsRaw || "{}");
     const tm = String(parsed.trim_method || "").trim().toLowerCase();
@@ -1380,6 +1627,10 @@ $("#refresh-media").addEventListener("click", async () => {
     await fetch("/api/cache/clear", { method: "POST" });
   } catch (_) {}
   state.cacheStateById.clear();
+  state.cacheProgressById.clear();
+  state.videoDurationById.clear();
+  state.cacheDownloadTimingById.clear();
+  state.cachePrecachedById.clear();
   const createResp = await fetch("/api/picker/session", { method: "POST" });
   if (!createResp.ok) {
     let detail = "";
@@ -1655,8 +1906,13 @@ async function pollVisibleCacheReady() {
     if (current === "ready" || current === "loading") continue;
     const st = await fetchCachedStatus(it);
     if (!st.ready) continue;
+    state.cachePrecachedById.set(id, true);
     setCacheState(id, "Lokal bereit (abspielbar)", "ready");
     setCacheProgress(id, 100);
+    if (st.duration_seconds != null && Number(st.duration_seconds) > 0) {
+      setVideoDurationSec(id, Number(st.duration_seconds));
+    }
+    updateDownloadDurationDisplay(id);
     const video = document.querySelector(`video.preview[src*="media_item_id=${encodeURIComponent(id)}"]`);
     if (video) {
       video.src = cachedVideoUrl(it, true);
@@ -1939,23 +2195,52 @@ function stopJobsPolling() {
   state.jobsPollTimer = null;
 }
 
+function formatTranscriptionCost(row) {
+  const n = row?.openai_cost_usd;
+  if (n == null || n === "" || Number.isNaN(Number(n))) return "—";
+  const formatted = formatUsdAmount(n);
+  if (row.openai_cost_estimated && String(row.status || "").toLowerCase() !== "done") {
+    return `≈ ${formatted}`;
+  }
+  if (row.openai_cost_estimated) {
+    return `${formatted}*`;
+  }
+  return formatted;
+}
+
 async function loadTranscriptionJobs() {
   const statusEl = $("#transcription-status");
+  const discEl = $("#transcription-cost-disclaimer");
   const body = $("#transcription-body");
   if (!body) return;
   try {
     const r = await fetch("/api/transcriptions");
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const rows = await r.json();
+    const payload = await r.json();
+    const rows = Array.isArray(payload) ? payload : payload.jobs || [];
+    if (discEl) {
+      const rate = payload.openai_usd_per_minute_assumed;
+      const rateHint =
+        rate != null && !Number.isNaN(Number(rate))
+          ? ` Rate: ${formatUsdAmount(rate)} pro Minute Audio.`
+          : "";
+      const totalHint =
+        payload.openai_cost_total_usd != null && !Number.isNaN(Number(payload.openai_cost_total_usd))
+          ? ` Summe (sichtbare Jobs): ${formatUsdAmount(payload.openai_cost_total_usd)}.`
+          : "";
+      discEl.textContent = `${payload.disclaimer_de || ""}${rateHint}${totalHint} * = aus Dauer geschätzt (ältere Jobs).`;
+      discEl.classList.toggle("hidden", !payload.disclaimer_de && !rateHint);
+    }
     body.innerHTML = "";
     for (const row of rows || []) {
       const tr = document.createElement("tr");
       const progress = formatProgress(row.progress);
       const duration = row.duration_seconds == null ? "—" : formatSeconds(row.duration_seconds);
+      const cost = formatTranscriptionCost(row);
       const action = row.status === "done"
         ? `<a class="btn" href="/api/transcriptions/${row.id}/text" target="_blank" rel="noopener">TXT</a>`
         : "";
-      tr.innerHTML = `<td>${row.id}</td><td>${escapeHtml(row.filename || "")}</td><td>${escapeHtml(row.model || "")}</td><td>${escapeHtml(row.language || "auto")}</td><td>${escapeHtml(row.status || "")}</td><td>${escapeHtml(row.phase || "")}</td><td>${escapeHtml(progress || "")}</td><td>${escapeHtml(duration)}</td><td>${action}</td><td>${escapeHtml(row.error || "")}</td>`;
+      tr.innerHTML = `<td>${row.id}</td><td>${escapeHtml(row.filename || "")}</td><td>${escapeHtml(row.model || "")}</td><td>${escapeHtml(row.language || "auto")}</td><td>${escapeHtml(row.status || "")}</td><td>${escapeHtml(row.phase || "")}</td><td>${escapeHtml(progress || "")}</td><td>${escapeHtml(duration)}</td><td>${escapeHtml(cost)}</td><td>${action}</td><td>${escapeHtml(row.error || "")}</td>`;
       body.appendChild(tr);
     }
     if (statusEl) statusEl.textContent = `${rows.length || 0} Transkriptionsjobs geladen.`;
@@ -2160,7 +2445,7 @@ function applyServerTinderReviews(rows) {
         state.tinderLikes.set(k, { ...likeBase, key: k });
       }
     }
-    if (decision === "like" || decision === "dislike") {
+    if (decision === "like" || decision === "dislike" || decision === "skip") {
       const revBase = {
         decision,
         jobId: row.job_id || null,
@@ -2240,15 +2525,8 @@ function detectTrimMode(folder, filename, videoUrl = "") {
   return "silence_balanced";
 }
 
-function trimModeLabelDe(mode) {
-  const key = String(mode || "").toLowerCase();
-  if (key === "openai_speech") return "OpenAI Speech";
-  if (key === "clip_pipeline_ai") return "Clip Pipeline AI";
-  if (key === "silence_conservative") return "Silence Conservative";
-  if (key === "silence_balanced") return "Silence Balanced";
-  if (key === "silence_aggressive") return "Silence Aggressive";
-  if (key) return String(mode);
-  return "Unbekannt";
+function trimModeLabelDe(mode, clip = null) {
+  return trimModeDisplayLabel(mode, clip);
 }
 
 function parseDurationTagsFromText(text) {
@@ -2306,8 +2584,9 @@ function flattenGalleryClips(entries) {
         cutInputSeconds: (entry.source && entry.source.cutInputSeconds) || null,
         cutOutputSeconds: (entry.source && entry.source.cutOutputSeconds) || null,
         trimMode:
-          (entry.source && (entry.source.jobType || entry.source.trimMode)) ||
-          detectTrimMode(entry.folder, (entry.source && entry.source.filename) || "", clip.video_url || ""),
+          (entry.source && entry.source.trimMode) ||
+          detectTrimMode(entry.folder, (entry.source && entry.source.filename) || "", clip.video_url || "") ||
+          "unknown",
         index: clip.index,
         begin_sec: clip.begin_sec,
         finish_sec: clip.finish_sec,
@@ -2329,8 +2608,14 @@ function isReviewedDecision(value) {
   return d === "like" || d === "dislike";
 }
 
+/** Clips hidden from TinderWatch queue (skip does not count toward like/dislike stats). */
+function isQueueHiddenDecision(value) {
+  const d = String(value || "").toLowerCase();
+  return d === "like" || d === "dislike" || d === "skip";
+}
+
 function filterUnreviewedClips(clips) {
-  return (clips || []).filter((clip) => !isReviewedDecision(resolveTinderDecision(clip)?.decision));
+  return (clips || []).filter((clip) => !isQueueHiddenDecision(resolveTinderDecision(clip)?.decision));
 }
 
 function parseOptionalMinFilter(value) {
@@ -2424,10 +2709,19 @@ async function markTinderLiked(clip) {
   await upsertTinderReviewOnServer(clip, { decision: "like" });
 }
 
-async function markTinderDecision(clip, decision) {
-  if (!clip || (decision !== "like" && decision !== "dislike")) return;
-  state.tinderDecisions.set(clip.key, {
-    key: clip.key,
+function tinderDecisionKeysForClip(clip) {
+  const keys = new Set();
+  if (!clip) return keys;
+  if (clip.key) keys.add(clip.key);
+  const stable = clip.video_url ? tinderStableClipKey(clip.video_url) : "";
+  if (stable) keys.add(stable);
+  return keys;
+}
+
+function setTinderDecisionLocal(clip, decision) {
+  const keys = tinderDecisionKeysForClip(clip);
+  if (!keys.size) return;
+  const base = {
     jobId: clip.jobId || null,
     mediaItemId: clip.mediaItemId || null,
     decision,
@@ -2436,9 +2730,24 @@ async function markTinderDecision(clip, decision) {
     folder: clip.folder || "",
     video_url: clip.video_url || "",
     decided_at: new Date().toISOString(),
-  });
+  };
+  for (const key of keys) {
+    state.tinderDecisions.set(key, { ...base, key });
+  }
+}
+
+async function markTinderDecision(clip, decision) {
+  if (!clip || (decision !== "like" && decision !== "dislike")) return;
+  setTinderDecisionLocal(clip, decision);
   persistTinderState();
   await upsertTinderReviewOnServer(clip, { decision });
+}
+
+async function markTinderSkipped(clip) {
+  if (!clip) return;
+  setTinderDecisionLocal(clip, "skip");
+  persistTinderState();
+  await upsertTinderReviewOnServer(clip, { decision: "skip" });
 }
 
 function markTinderDownloaded(clip) {
@@ -2510,6 +2819,39 @@ function renderTinderLikesList() {
   });
 }
 
+async function resetTinderStats() {
+  const status = $("#tinder-status");
+  const ok = window.confirm(
+    "Alle TinderWatch-Bewertungen (Likes, Dislikes, Downloads) und die Match-Statistik werden gelöscht — lokal und auf dem Server. Fortfahren?"
+  );
+  if (!ok) return;
+  if (status) status.textContent = "Setze Statistik zurück…";
+  try {
+    const r = await fetch("/api/tinder/reviews/reset", { method: "POST" });
+    if (!r.ok) {
+      let detail = "";
+      try {
+        detail = (await r.json()).detail || "";
+      } catch (_) {}
+      throw new Error(detail || `HTTP ${r.status}`);
+    }
+    state.tinderLikes.clear();
+    state.tinderDecisions.clear();
+    state.tinderDownloaded.clear();
+    persistTinderState();
+    state.tinderIndex = 0;
+    applyTinderQueueFromAllClips();
+    renderTinderCard();
+    renderTinderStats();
+    renderTinderLikesList();
+    updateTinderStatus();
+    setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
+    if (status) status.textContent = "Statistik zurückgesetzt. Alle Clips sind wieder offen.";
+  } catch (err) {
+    if (status) status.textContent = `Zurücksetzen fehlgeschlagen: ${err.message || err}`;
+  }
+}
+
 function renderTinderStats() {
   const root = $("#tinder-stats-root");
   if (!root) return;
@@ -2520,17 +2862,19 @@ function renderTinderStats() {
   const likePct = total > 0 ? Math.round((likes * 100) / total) : 0;
   const ring = `conic-gradient(#27d7a0 0 ${likePct}%, #ff6a95 ${likePct}% 100%)`;
 
-  const modes = ["silence_conservative", "silence_balanced", "silence_aggressive", "openai_speech", "unknown"];
-  const labels = {
-    silence_conservative: "Silence Conservative",
-    silence_balanced: "Silence Balanced",
-    silence_aggressive: "Silence Aggressive",
-    openai_speech: "OpenAI Speech",
-    unknown: "Unknown",
-  };
+  const modes = [
+    "none",
+    "silence_conservative",
+    "silence_balanced",
+    "silence_aggressive",
+    "silero_vad",
+    "openai_speech",
+    "all_methods_testing",
+    "unknown",
+  ];
   const rows = modes
     .map((mode) => {
-      const subset = decisions.filter((d) => (d.trimMode || "unknown") === mode);
+      const subset = decisions.filter((d) => normalizeTrimModeKey(d.trimMode || "unknown") === mode);
       const mLikes = subset.filter((d) => d.decision === "like").length;
       const mDislikes = subset.filter((d) => d.decision === "dislike").length;
       const mTotal = mLikes + mDislikes;
@@ -2560,7 +2904,7 @@ function renderTinderStats() {
               ? rows
                   .map(
                     (r) => `<div class="tinder-mode-row">
-                <div class="tinder-mode-label">${labels[r.mode] || r.mode}</div>
+                <div class="tinder-mode-label">${escapeHtml(trimModeDisplayLabel(r.mode))}</div>
                 <div class="tinder-mode-track">
                   <div class="tinder-mode-like" style="width:${r.mLikePct}%"></div>
                 </div>
@@ -2679,7 +3023,7 @@ function renderTinderCard() {
       <div class="tinder-meta-grid">
         <div class="tinder-meta-item">
           <span class="tinder-meta-label">Cutting-Modus</span>
-          <span class="tinder-meta-value">${escapeHtml(trimModeLabelDe(clip.trimMode))}</span>
+          <span class="tinder-meta-value">${escapeHtml(trimModeLabelDe(clip.trimMode, clip))}</span>
         </div>
         <div class="tinder-meta-item">
           <span class="tinder-meta-label">Dauer vorher/nachher</span>
@@ -2753,15 +3097,24 @@ async function tinderSkipAll() {
     return;
   }
 
-  const toSkip = [...(state.tinderClips || [])];
+  const seen = new Set();
+  const toSkip = [];
+  for (const clip of state.tinderAllClips || []) {
+    if (isQueueHiddenDecision(resolveTinderDecision(clip)?.decision)) continue;
+    const dedupe = (clip.video_url && tinderStableClipKey(clip.video_url)) || clip.key;
+    if (!dedupe || seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    toSkip.push(clip);
+  }
   if (!toSkip.length) {
-    if (statusEl) statusEl.textContent = "Keine offenen Clips in dieser Queue.";
+    if (statusEl) statusEl.textContent = "Keine offenen Clips mehr.";
     renderTinderCard();
     updateTinderStatus();
+    setTinderwatchBadge(0);
     return;
   }
   const ok = window.confirm(
-    `Alle ${toSkip.length} offenen Clip(s) überspringen? (Nach aktuellem Sort/Filter; keine Likes)`
+    `Alle ${toSkip.length} offenen Clip(s) aus TinderWatch entfernen? (Überspringen — ohne Like/Dislike in der Statistik)`
   );
   if (!ok) {
     updateTinderStatus();
@@ -2769,15 +3122,27 @@ async function tinderSkipAll() {
   }
   if (statusEl) statusEl.textContent = `Überspringe ${toSkip.length} Clip(s)…`;
   for (const clip of toSkip) {
-    await markTinderDecision(clip, "dislike");
+    setTinderDecisionLocal(clip, "skip");
+  }
+  persistTinderState();
+  const chunkSize = 12;
+  for (let i = 0; i < toSkip.length; i += chunkSize) {
+    const chunk = toSkip.slice(i, i + chunkSize);
+    await Promise.all(chunk.map((clip) => upsertTinderReviewOnServer(clip, { decision: "skip" })));
   }
   state.tinderAllClips = filterUnreviewedClips(state.tinderAllClips);
   applyTinderQueueFromAllClips();
   state.tinderIndex = 0;
-  setTinderwatchBadge(computeUnseenFromClips(state.tinderClips));
+  setTinderwatchBadge(computeUnseenFromClips(state.tinderAllClips));
   renderTinderCard();
   renderTinderStats();
   updateTinderStatus();
+  if (statusEl) {
+    statusEl.textContent =
+      state.tinderClips.length > 0
+        ? `${toSkip.length} übersprungen — ${state.tinderClips.length} offen (Sort/Filter).`
+        : `Alle ${toSkip.length} Clip(s) übersprungen. Queue leer.`;
+  }
 }
 
 function downloadAllLikedClips() {
@@ -2917,6 +3282,8 @@ const tinderDownloadAllBtn = $("#tinder-download-all");
 if (tinderDownloadAllBtn) tinderDownloadAllBtn.addEventListener("click", () => downloadAllLikedClips());
 const tinderExportLikesBtn = $("#tinder-export-likes");
 if (tinderExportLikesBtn) tinderExportLikesBtn.addEventListener("click", () => exportTinderLikes());
+const tinderResetStatsBtn = $("#tinder-reset-stats");
+if (tinderResetStatsBtn) tinderResetStatsBtn.addEventListener("click", () => resetTinderStats());
 const tinderLikeFilterToggleBtn = $("#tinder-like-filter-toggle");
 if (tinderLikeFilterToggleBtn) tinderLikeFilterToggleBtn.addEventListener("click", () => cycleTinderLikeFilter());
 document.querySelectorAll(".settings-day-btn").forEach((btn) => {

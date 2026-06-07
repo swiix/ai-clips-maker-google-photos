@@ -51,7 +51,7 @@ _lock = threading.Lock()
 
 # Stored in sync_state; increment when adding a new _migrate_vN branch.
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 _JOBS_COLUMN_ALIASES_V1 = (
     ("phase", "ALTER TABLE jobs ADD COLUMN phase TEXT"),
@@ -70,6 +70,10 @@ _JOBS_COLUMN_ALIASES_V1 = (
 _TINDER_COLUMN_ALIASES_V1 = (
     ("job_id", "ALTER TABLE tinder_reviews ADD COLUMN job_id INTEGER"),
     ("media_item_id", "ALTER TABLE tinder_reviews ADD COLUMN media_item_id TEXT"),
+)
+
+_TRANSCRIPTION_COLUMN_ALIASES_V3 = (
+    ("openai_cost_usd", "ALTER TABLE transcription_jobs ADD COLUMN openai_cost_usd REAL"),
 )
 
 
@@ -251,6 +255,16 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     _migrate_v2_dedupe_tinder_reviews(conn)
 
 
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    if not _table_columns(conn, "transcription_jobs"):
+        return
+    cols = _table_columns(conn, "transcription_jobs")
+    for name, ddl in _TRANSCRIPTION_COLUMN_ALIASES_V3:
+        if name not in cols:
+            conn.execute(ddl)
+            cols.add(name)
+
+
 def _get_schema_version(conn: sqlite3.Connection) -> int:
     row = conn.execute(
         "SELECT value FROM sync_state WHERE key = ?", (SCHEMA_VERSION_KEY,)
@@ -280,6 +294,8 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             _migrate_v1(conn)
         elif nxt == 2:
             _migrate_v2(conn)
+        elif nxt == 3:
+            _migrate_v3(conn)
         else:
             raise RuntimeError(f"No SQLite migration implemented for schema version {nxt}")
         _set_schema_version(conn, nxt)
@@ -352,6 +368,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             phase TEXT,
             progress REAL,
             duration_seconds REAL,
+            openai_cost_usd REAL,
             error TEXT,
             created_at REAL,
             updated_at REAL
@@ -415,6 +432,7 @@ def update_transcription_job(
     duration_seconds: float | None = None,
     error: str | None = None,
     output_txt_path: str | None = None,
+    openai_cost_usd: float | None = None,
 ) -> None:
     now = time.time()
     with _lock:
@@ -426,6 +444,7 @@ def update_transcription_job(
                 phase = COALESCE(?, phase),
                 progress = COALESCE(?, progress),
                 duration_seconds = COALESCE(?, duration_seconds),
+                openai_cost_usd = COALESCE(?, openai_cost_usd),
                 error = ?,
                 output_txt_path = COALESCE(?, output_txt_path),
                 updated_at = ?
@@ -436,6 +455,7 @@ def update_transcription_job(
                 phase,
                 progress,
                 duration_seconds,
+                openai_cost_usd,
                 error,
                 output_txt_path,
                 now,
@@ -450,7 +470,7 @@ def get_transcription_job(conn: sqlite3.Connection, job_id: int) -> dict[str, An
         row = conn.execute(
             """
             SELECT id, filename, input_path, output_txt_path, model, language, status,
-                   phase, progress, duration_seconds, error, created_at, updated_at
+                   phase, progress, duration_seconds, openai_cost_usd, error, created_at, updated_at
             FROM transcription_jobs
             WHERE id = ?
             """,
@@ -466,7 +486,7 @@ def list_transcription_jobs(conn: sqlite3.Connection, limit: int = 200) -> list[
         rows = conn.execute(
             """
             SELECT id, filename, input_path, output_txt_path, model, language, status,
-                   phase, progress, duration_seconds, error, created_at, updated_at
+                   phase, progress, duration_seconds, openai_cost_usd, error, created_at, updated_at
             FROM transcription_jobs
             ORDER BY updated_at DESC
             LIMIT ?
@@ -885,6 +905,13 @@ def upsert_tinder_review(
                 ),
             )
         conn.commit()
+
+
+def clear_all_tinder_reviews(conn: sqlite3.Connection) -> int:
+    with _lock:
+        cur = conn.execute("DELETE FROM tinder_reviews")
+        conn.commit()
+        return int(cur.rowcount or 0)
 
 
 def list_tinder_reviews(conn: sqlite3.Connection, limit: int = 5000) -> list[dict[str, Any]]:
